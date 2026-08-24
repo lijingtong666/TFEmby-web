@@ -8,6 +8,7 @@ import { fetchDoubanChart } from "./douban.js";
 import {
   annotateChartItems,
   getLatestItems,
+  getLibrarySeasonNumbers,
   getPlayedHistory,
   getResumeItems,
   getStats,
@@ -17,7 +18,7 @@ import {
 } from "./emby.js";
 import { createMediaRequest, listMediaRequests, updateMediaRequest } from "./requests.js";
 import { enrichChartPosters } from "./posters.js";
-import { fetchTmdbChart, fetchTmdbItem, searchTmdb } from "./tmdb.js";
+import { fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
 import {
   controlTgBot,
   getTgBotConfig,
@@ -32,7 +33,7 @@ import {
   telegramConfigured
 } from "./telegram.js";
 import type { TgBotConfig } from "./telegram.js";
-import type { RequestStatus } from "./types.js";
+import type { ChartItem, RequestStatus } from "./types.js";
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -317,6 +318,31 @@ app.get(
 );
 
 app.get(
+  "/api/tmdb/image",
+  asyncRoute(async (req, res) => {
+    const imagePath = scalar(req.query.path, "");
+    const size = scalar(req.query.size, "w500");
+    const response = await fetchTmdbImage(imagePath, size);
+    res.setHeader("Content-Type", response.headers.get("content-type") || "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    res.send(Buffer.from(await response.arrayBuffer()));
+  })
+);
+
+app.get(
+  "/api/tmdb/tv/:id/seasons",
+  asyncRoute(async (req, res) => {
+    const session = requireAppSession(req);
+    const tmdbId = scalar(req.params.id, "");
+    const { item, seasons } = await fetchTmdbSeasons(tmdbId);
+    const librarySeasons = session.emby
+      ? await getLibrarySeasonNumbers(session.emby, tmdbId, item.title, item.year)
+      : new Set<number>();
+    res.json(seasons.map((season) => ({ ...season, inLibrary: librarySeasons.has(season.seasonNumber) })));
+  })
+);
+
+app.get(
   "/api/requests",
   asyncRoute(async (req, res) => {
     res.json(await listMediaRequests(requireAppSession(req)));
@@ -333,8 +359,33 @@ app.post(
       res.status(400).json({ error: "请选择有效的 TMDB 电影或剧集。" });
       return;
     }
-    const item = await fetchTmdbItem(tmdbId, mediaType);
-    const created = await createMediaRequest(session, item);
+    let item: ChartItem;
+    let season: { seasonNumber: number; seasonName: string } | undefined;
+    if (mediaType === "tv") {
+      const seasonNumber = Number(req.body?.seasonNumber);
+      if (!Number.isInteger(seasonNumber) || seasonNumber <= 0) {
+        res.status(400).json({ error: "请选择要申请的季度。" });
+        return;
+      }
+      const details = await fetchTmdbSeasons(tmdbId);
+      item = details.item;
+      const selected = details.seasons.find((candidate) => candidate.seasonNumber === seasonNumber);
+      if (!selected) {
+        res.status(404).json({ error: "TMDB 中未找到该季度。" });
+        return;
+      }
+      if (session.emby) {
+        const librarySeasons = await getLibrarySeasonNumbers(session.emby, tmdbId, item.title, item.year);
+        if (librarySeasons.has(seasonNumber)) {
+          res.status(409).json({ error: `第 ${seasonNumber} 季已在媒体库中。` });
+          return;
+        }
+      }
+      season = { seasonNumber, seasonName: selected.name };
+    } else {
+      item = await fetchTmdbItem(tmdbId, mediaType);
+    }
+    const created = await createMediaRequest(session, item, season);
     await notifyRequestCreated(created).catch((error: Error) => console.error(`Telegram request notification failed: ${error.message}`));
     res.status(201).json(created);
   })

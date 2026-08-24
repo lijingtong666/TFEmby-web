@@ -21,6 +21,12 @@ export type MediaItem = {
   premiereDate?: string;
   communityRating?: number;
   criticRating?: number;
+  seriesId?: string;
+  seriesName?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  recentEpisodeRange?: string;
+  recentEpisodeCount?: number;
   providerIds: Record<string, string>;
   userData?: {
     played?: boolean;
@@ -30,6 +36,15 @@ export type MediaItem = {
     runtimeTicks?: number;
     progressPercent?: number;
   };
+};
+
+export type TvSeason = {
+  seasonNumber: number;
+  name: string;
+  episodeCount?: number;
+  airDate?: string;
+  poster?: string;
+  inLibrary: boolean;
 };
 
 export type ChartItem = {
@@ -70,6 +85,8 @@ export type MediaRequest = {
   year?: number;
   poster?: string;
   overview?: string;
+  seasonNumber?: number;
+  seasonName?: string;
   requestedBy: {
     userId: string;
     username: string;

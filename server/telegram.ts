@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
+import { externalServiceFetch } from "./proxy.js";
+import { fetchTmdbImage } from "./tmdb.js";
 import type { MediaRequest, RequestStatus } from "./types.js";
 
 type EmbyItem = Record<string, any>;
@@ -220,14 +222,14 @@ function requireValues(settings: TgBotConfig, keys: Array<keyof TgBotConfig>) {
 }
 
 async function fetchJson(url: string, init?: RequestInit) {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(30000) });
+  const response = await externalServiceFetch(url, { ...init, signal: AbortSignal.timeout(30000) });
   const data = await response.json().catch(() => ({})) as Record<string, any>;
   if (!response.ok || data.ok === false) throw new Error(String(data.error || data.description || `HTTP ${response.status}`));
   return data;
 }
 
 async function telegramForm(settings: TgBotConfig, method: string, values: Record<string, string>) {
-  const response = await fetch(`${config.telegramApiBase}/bot${settings.telegramBotToken}/${method}`, {
+  const response = await externalServiceFetch(`${config.telegramApiBase}/bot${settings.telegramBotToken}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(values),
@@ -244,7 +246,7 @@ async function telegramMultipart(settings: TgBotConfig, chatId: string, image: B
   form.set("photo", image, "poster.jpg");
   form.set("caption", caption);
   form.set("parse_mode", "HTML");
-  const response = await fetch(`${config.telegramApiBase}/bot${settings.telegramBotToken}/sendPhoto`, {
+  const response = await externalServiceFetch(`${config.telegramApiBase}/bot${settings.telegramBotToken}/sendPhoto`, {
     method: "POST",
     body: form,
     signal: AbortSignal.timeout(30000)
@@ -273,6 +275,17 @@ async function sendTelegram(message: string, photo?: string) {
   if (!botConfigured(settings)) return { configured: false, sent: 0 };
   let sent = 0;
   for (const chatId of parseChatIds(settings.telegramChatId)) {
+    if (photo?.startsWith("/api/tmdb/image")) {
+      try {
+        const url = new URL(photo, "http://localhost");
+        const response = await fetchTmdbImage(url.searchParams.get("path") || "", url.searchParams.get("size") || "w500");
+        await telegramMultipart(settings, chatId, await response.blob(), message);
+        sent += 1;
+        continue;
+      } catch {
+        // A text notification is still useful when the poster cannot be downloaded.
+      }
+    }
     if (photo?.startsWith("https://")) {
       try {
         await telegramForm(settings, "sendPhoto", { chat_id: chatId, photo, caption: message, parse_mode: "HTML" });
@@ -289,7 +302,8 @@ async function sendTelegram(message: string, photo?: string) {
 }
 
 function tmdbUrl(request: MediaRequest) {
-  return `https://www.themoviedb.org/${request.mediaType}/${encodeURIComponent(request.tmdbId)}`;
+  const base = `https://www.themoviedb.org/${request.mediaType}/${encodeURIComponent(request.tmdbId)}`;
+  return request.mediaType === "tv" && request.seasonNumber ? `${base}/season/${request.seasonNumber}` : base;
 }
 
 export function telegramConfigured() {
@@ -303,6 +317,7 @@ export function notifyRequestCreated(request: MediaRequest) {
     `<b>提交用户：</b>${escapeHtml(request.requestedBy.username)}`,
     `<b>影片名称：</b>${escapeHtml(request.title)}`,
     `<b>媒体类型：</b>${request.mediaType === "tv" ? "剧集" : "电影"}`,
+    ...(request.seasonNumber ? [`<b>申请季度：</b>第 ${request.seasonNumber} 季`] : []),
     `<b>上映年份：</b>${request.year ? escapeHtml(request.year) : "未知"}`,
     `<b>TMDB ID：</b>${escapeHtml(request.tmdbId)}`,
     `<b>详情链接：</b><a href="${tmdbUrl(request)}">打开 TMDB</a>`
@@ -315,6 +330,7 @@ export function notifyRequestStatus(request: MediaRequest, operator: string) {
     `${icon} <b>求片状态更新</b>`,
     "",
     `<b>片名：</b>${escapeHtml(request.title)}`,
+    ...(request.seasonNumber ? [`<b>申请季度：</b>第 ${request.seasonNumber} 季`] : []),
     `<b>状态：</b>${statusLabels[request.status]}`,
     `<b>申请人：</b>${escapeHtml(request.requestedBy.username)}`,
     `<b>操作人：</b>${escapeHtml(operator)}`,
@@ -564,11 +580,11 @@ export function formatLibraryMessage(settings: TgBotConfig, item: EmbyItem, meta
 }
 
 function posterSource(settings: TgBotConfig, item: EmbyItem, metadata: Metadata) {
-  if (!settings.enableCovers) return { url: "", local: false };
-  if (metadata.tmdb.poster_path) return { url: `https://image.tmdb.org/t/p/w780${metadata.tmdb.poster_path}`, local: false };
-  if (metadata.douban.img) return { url: String(metadata.douban.img), local: false };
-  if (item.ImageTags?.Primary && item.Id) return { url: `${embyBase(settings)}/Items/${encodeURIComponent(item.Id)}/Images/Primary?maxHeight=1200&quality=90`, local: true };
-  return { url: "", local: false };
+  if (!settings.enableCovers) return { url: "", source: "none" as const };
+  if (metadata.tmdb.poster_path) return { url: `https://image.tmdb.org/t/p/w780${metadata.tmdb.poster_path}`, source: "tmdb" as const };
+  if (metadata.douban.img) return { url: String(metadata.douban.img), source: "remote" as const };
+  if (item.ImageTags?.Primary && item.Id) return { url: `${embyBase(settings)}/Items/${encodeURIComponent(item.Id)}/Images/Primary?maxHeight=1200&quality=90`, source: "emby" as const };
+  return { url: "", source: "none" as const };
 }
 
 async function sendLibraryNotification(settings: TgBotConfig, item: EmbyItem, metadata: Metadata, payload?: EmbyItem) {
@@ -578,9 +594,13 @@ async function sendLibraryNotification(settings: TgBotConfig, item: EmbyItem, me
   for (const chatId of parseChatIds(settings.telegramChatId)) {
     if (poster.url) {
       try {
-        if (poster.local) {
+        if (poster.source === "emby") {
           const response = await fetch(poster.url, { headers: { "X-Emby-Token": settings.embyApiKey }, signal: AbortSignal.timeout(20000) });
           if (!response.ok) throw new Error(`Emby 海报 HTTP ${response.status}`);
+          await telegramMultipart(settings, chatId, await response.blob(), message);
+        } else if (poster.source === "tmdb") {
+          const response = await externalServiceFetch(poster.url, { signal: AbortSignal.timeout(20000) });
+          if (!response.ok) throw new Error(`TMDB 海报 HTTP ${response.status}`);
           await telegramMultipart(settings, chatId, await response.blob(), message);
         } else {
           await telegramForm(settings, "sendPhoto", { chat_id: chatId, photo: poster.url, caption: message, parse_mode: "HTML" });

@@ -27,6 +27,12 @@ export type MediaItem = {
   premiereDate?: string;
   communityRating?: number;
   criticRating?: number;
+  seriesId?: string;
+  seriesName?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  recentEpisodeRange?: string;
+  recentEpisodeCount?: number;
   providerIds: Record<string, string>;
   userData?: {
     played?: boolean;
@@ -34,6 +40,15 @@ export type MediaItem = {
     lastPlayedDate?: string;
     progressPercent?: number;
   };
+};
+
+export type TvSeason = {
+  seasonNumber: number;
+  name: string;
+  episodeCount?: number;
+  airDate?: string;
+  poster?: string;
+  inLibrary: boolean;
 };
 
 export type ChartItem = {
@@ -82,6 +97,8 @@ export type WebSettings = {
   telegramBotToken: string;
   telegramChatId: string;
   telegramApiBase: string;
+  proxyEnabled: boolean;
+  proxyUrl: string;
 };
 
 export type TgBotConfig = {
@@ -137,6 +154,8 @@ export type MediaRequest = {
   year?: number;
   poster?: string;
   overview?: string;
+  seasonNumber?: number;
+  seasonName?: string;
   requestedBy: {
     userId: string;
     username: string;

@@ -16,6 +16,10 @@ type EmbyItem = {
   ProviderIds?: Record<string, string>;
   ImageTags?: Record<string, string>;
   BackdropImageTags?: string[];
+  SeriesId?: string;
+  SeriesName?: string;
+  ParentIndexNumber?: number;
+  IndexNumber?: number;
   UserData?: {
     Played?: boolean;
     PlayCount?: number;
@@ -147,6 +151,10 @@ function toMediaItem(session: EmbySession, item: EmbyItem): MediaItem {
     premiereDate: item.PremiereDate,
     communityRating: item.CommunityRating,
     criticRating: item.CriticRating,
+    seriesId: item.SeriesId,
+    seriesName: item.SeriesName,
+    seasonNumber: item.ParentIndexNumber,
+    episodeNumber: item.IndexNumber,
     providerIds: item.ProviderIds || {},
     userData: {
       played: Boolean(item.UserData?.Played),
@@ -169,7 +177,11 @@ const fields = [
   "CommunityRating",
   "CriticRating",
   "ImageTags",
-  "BackdropImageTags"
+  "BackdropImageTags",
+  "SeriesId",
+  "SeriesName",
+  "ParentIndexNumber",
+  "IndexNumber"
 ].join(",");
 
 export async function searchLibrary(session: EmbySession, query: string, limit = 48) {
@@ -203,7 +215,79 @@ export async function getLatestItems(session: EmbySession, limit = 36) {
     Limit: String(limit)
   });
   const data = await embyFetch<EmbyItem[]>(session, `/Users/${session.userId}/Items/Latest?${params.toString()}`);
-  return (data || []).map((item) => toMediaItem(session, item));
+  const episodeGroups = new Map<string, EmbyItem[]>();
+  const standalone: EmbyItem[] = [];
+
+  for (const item of data || []) {
+    if (item.Type !== "Episode") {
+      standalone.push(item);
+      continue;
+    }
+    const batchDate = (item.DateCreated || "unknown").slice(0, 10);
+    const seriesKey = item.SeriesId || item.SeriesName || item.Id;
+    const key = `${seriesKey}:${batchDate}`;
+    episodeGroups.set(key, [...(episodeGroups.get(key) || []), item]);
+  }
+
+  const groupedEpisodes = await Promise.all(Array.from(episodeGroups.entries()).map(async ([key, episodes]) => {
+    const first = episodes[0];
+    let series: EmbyItem | null = null;
+    if (first.SeriesId) {
+      series = await embyFetch<EmbyItem>(session, `/Users/${session.userId}/Items/${encodeURIComponent(first.SeriesId)}?Fields=${encodeURIComponent(fields)}`).catch(() => null);
+    }
+    const media = toMediaItem(session, series || first);
+    const latestDate = episodes.map((episode) => episode.DateCreated || "").sort().at(-1) || first.DateCreated;
+    return {
+      ...media,
+      id: `latest-${key}`,
+      title: first.SeriesName || series?.Name || first.Name,
+      type: "series" as const,
+      dateCreated: latestDate,
+      seriesId: first.SeriesId,
+      seriesName: first.SeriesName || series?.Name,
+      recentEpisodeRange: formatEpisodeRange(episodes),
+      recentEpisodeCount: episodes.length
+    };
+  }));
+
+  const groupedSeriesIds = new Set(groupedEpisodes.map((item) => item.seriesId).filter(Boolean));
+  return [
+    ...standalone.filter((item) => item.Type !== "Series" || !groupedSeriesIds.has(item.Id)).map((item) => toMediaItem(session, item)),
+    ...groupedEpisodes
+  ]
+    .sort((a, b) => (b.dateCreated || "").localeCompare(a.dateCreated || ""))
+    .slice(0, limit);
+}
+
+function formatEpisodeRange(episodes: EmbyItem[]) {
+  const seasons = new Map<number, number[]>();
+  for (const episode of episodes) {
+    if (!Number.isInteger(episode.ParentIndexNumber) || !Number.isInteger(episode.IndexNumber)) continue;
+    const seasonNumber = Number(episode.ParentIndexNumber);
+    seasons.set(seasonNumber, [...(seasons.get(seasonNumber) || []), Number(episode.IndexNumber)]);
+  }
+  if (!seasons.size) return `本次入库 ${episodes.length} 集`;
+
+  return Array.from(seasons.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([seasonNumber, values]) => {
+      const numbers = Array.from(new Set(values)).sort((left, right) => left - right);
+      const ranges: string[] = [];
+      let start = numbers[0];
+      let end = numbers[0];
+      for (const current of numbers.slice(1)) {
+        if (current === end + 1) {
+          end = current;
+          continue;
+        }
+        ranges.push(start === end ? `第${start}集` : `第${start}集-第${end}集`);
+        start = current;
+        end = current;
+      }
+      ranges.push(start === end ? `第${start}集` : `第${start}集-第${end}集`);
+      return `第${seasonNumber}季 ${ranges.join("、")}`;
+    })
+    .join(" · ");
 }
 
 export async function getPlayedHistory(session: EmbySession, limit = 36) {
@@ -306,4 +390,37 @@ export async function annotateChartItems(session: EmbySession | null, chartItems
       }
     };
   });
+}
+
+export async function getLibrarySeasonNumbers(session: EmbySession, tmdbId: string, title: string, year?: number) {
+  const library = await getLibraryIndex(session);
+  const series = library.find((item) => {
+    if (item.type !== "series") return false;
+    const sameTmdb = tmdbId && providerId(item, ["Tmdb", "TMDb"]) === tmdbId;
+    const sameTitle = [item.title, item.originalTitle].some((value) => normalizeTitle(value) === normalizeTitle(title)) && (!year || !item.year || item.year === year);
+    return Boolean(sameTmdb || sameTitle);
+  });
+  if (!series) return new Set<number>();
+
+  const seasonParams = new URLSearchParams({
+    UserId: session.userId,
+    ParentId: series.id,
+    IncludeItemTypes: "Season",
+    Fields: "IndexNumber",
+    Limit: "100"
+  });
+  const seasonData = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${seasonParams.toString()}`);
+  const seasonNumbers = new Set((seasonData.Items || []).map((item) => item.IndexNumber).filter((value): value is number => Number.isInteger(value) && Number(value) > 0));
+  if (seasonNumbers.size) return seasonNumbers;
+
+  const episodeParams = new URLSearchParams({
+    UserId: session.userId,
+    ParentId: series.id,
+    Recursive: "true",
+    IncludeItemTypes: "Episode",
+    Fields: "ParentIndexNumber",
+    Limit: "10000"
+  });
+  const episodeData = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${episodeParams.toString()}`);
+  return new Set((episodeData.Items || []).map((item) => item.ParentIndexNumber).filter((value): value is number => Number.isInteger(value) && Number(value) > 0));
 }

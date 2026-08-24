@@ -1,5 +1,14 @@
 import { config } from "./config.js";
-import type { ChartItem } from "./types.js";
+import { externalServiceFetch } from "./proxy.js";
+import type { ChartItem, TvSeason } from "./types.js";
+
+type TmdbSeason = {
+  season_number: number;
+  name?: string;
+  episode_count?: number;
+  air_date?: string;
+  poster_path?: string;
+};
 
 type TmdbMedia = {
   id: number;
@@ -14,13 +23,16 @@ type TmdbMedia = {
   vote_average?: number;
   release_date?: string;
   first_air_date?: string;
+  seasons?: TmdbSeason[];
 };
 
 type TmdbResponse = {
   results?: TmdbMedia[];
 };
 
-const image = (path?: string, size = "w500") => (path ? `https://image.tmdb.org/t/p/${size}${path}` : undefined);
+const image = (imagePath?: string, size = "w500") => imagePath
+  ? `/api/tmdb/image?path=${encodeURIComponent(imagePath)}&size=${encodeURIComponent(size)}`
+  : undefined;
 
 function headers() {
   if (config.tmdbBearerToken) {
@@ -76,7 +88,7 @@ export async function searchTmdb(query: string): Promise<ChartItem[]> {
   const endpoint = withKey(new URL("/3/search/multi", "https://api.themoviedb.org"));
   endpoint.searchParams.set("query", query.trim());
   endpoint.searchParams.set("include_adult", "false");
-  const response = await fetch(endpoint, { headers: headers() });
+  const response = await externalServiceFetch(endpoint, { headers: headers() });
   if (!response.ok) {
     const error = new Error("TMDB 搜索失败，请稍后重试。");
     (error as Error & { status?: number }).status = 502;
@@ -97,7 +109,7 @@ export async function fetchTmdbItem(tmdbId: string, mediaType: "movie" | "tv"): 
     throw error;
   }
   const endpoint = withKey(new URL(`/3/${mediaType}/${tmdbId}`, "https://api.themoviedb.org"));
-  const response = await fetch(endpoint, { headers: headers() });
+  const response = await externalServiceFetch(endpoint, { headers: headers() });
   if (!response.ok) {
     const error = new Error(response.status === 404 ? "TMDB 中未找到该条目。" : "TMDB 条目读取失败。");
     (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
@@ -108,6 +120,37 @@ export async function fetchTmdbItem(tmdbId: string, mediaType: "movie" | "tv"): 
   return toChartItem(media, "request", 0);
 }
 
+export async function fetchTmdbSeasons(tmdbId: string): Promise<{ item: ChartItem; seasons: TvSeason[] }> {
+  requireTmdb();
+  if (!/^\d+$/.test(tmdbId)) {
+    const error = new Error("TMDB ID 无效。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+  const endpoint = withKey(new URL(`/3/tv/${tmdbId}`, "https://api.themoviedb.org"));
+  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  if (!response.ok) {
+    const error = new Error(response.status === 404 ? "TMDB 中未找到该剧集。" : "TMDB 季度信息读取失败。");
+    (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
+    throw error;
+  }
+  const media = (await response.json()) as TmdbMedia;
+  media.media_type = "tv";
+  return {
+    item: toChartItem(media, "request", 0),
+    seasons: (media.seasons || [])
+      .filter((season) => Number.isInteger(season.season_number) && season.season_number > 0)
+      .map((season) => ({
+        seasonNumber: season.season_number,
+        name: season.name || `第 ${season.season_number} 季`,
+        episodeCount: season.episode_count,
+        airDate: season.air_date,
+        poster: image(season.poster_path),
+        inLibrary: false
+      }))
+  };
+}
+
 export async function findTmdbPoster(item: ChartItem): Promise<string | undefined> {
   if (!config.tmdbApiKey && !config.tmdbBearerToken) return undefined;
 
@@ -115,7 +158,7 @@ export async function findTmdbPoster(item: ChartItem): Promise<string | undefine
     const endpoint = withKey(new URL(`/3/search/${item.mediaType}`, "https://api.themoviedb.org"));
     endpoint.searchParams.set("query", item.title);
     if (item.year) endpoint.searchParams.set(item.mediaType === "tv" ? "first_air_date_year" : "year", String(item.year));
-    const response = await fetch(endpoint, { headers: headers(), signal: AbortSignal.timeout(5000) });
+    const response = await externalServiceFetch(endpoint, { headers: headers(), signal: AbortSignal.timeout(5000) });
     if (!response.ok) return undefined;
     const data = (await response.json()) as TmdbResponse;
     const match = (data.results || []).find((media) => media.poster_path);
@@ -162,7 +205,6 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
   if (!config.tmdbApiKey && !config.tmdbBearerToken) return fallback(chart);
 
   let path = "";
-  const url = new URL("https://api.themoviedb.org/3");
   if (chart === "trending" || chart === "global") {
     path = `/trending/${media === "movie" || media === "tv" ? media : "all"}/${period === "day" ? "day" : "week"}`;
   } else if (chart === "movie-popular") {
@@ -181,14 +223,34 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
     path = "/trending/all/week";
   }
 
-  const endpoint = withKey(new URL(path, url));
+  const endpoint = withKey(new URL(`/3${path}`, "https://api.themoviedb.org"));
   if (chart === "monthly") {
     endpoint.searchParams.set("sort_by", "popularity.desc");
     if (media === "tv") endpoint.searchParams.set("first_air_date.gte", lastMonth());
     else endpoint.searchParams.set("primary_release_date.gte", lastMonth());
   }
-  const response = await fetch(endpoint, { headers: headers() });
+  const response = await externalServiceFetch(endpoint, { headers: headers() });
   if (!response.ok) return fallback(chart);
   const data = (await response.json()) as TmdbResponse;
   return (data.results || []).slice(0, 24).map((item, index) => toChartItem(item, chart, index + 1));
+}
+
+export async function fetchTmdbImage(imagePath: string, size = "w500") {
+  if (!/^\/[A-Za-z0-9._/-]+$/.test(imagePath)) {
+    const error = new Error("TMDB 图片路径无效。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+  const allowedSizes = new Set(["w185", "w300", "w342", "w500", "w780", "original"]);
+  const chosenSize = allowedSizes.has(size) ? size : "w500";
+  const response = await externalServiceFetch(`https://image.tmdb.org/t/p/${chosenSize}${imagePath}`, {
+    headers: { Accept: "image/avif,image/webp,image/*,*/*" },
+    signal: AbortSignal.timeout(15000)
+  });
+  if (!response.ok) {
+    const error = new Error(`TMDB 图片读取失败：HTTP ${response.status}`);
+    (error as Error & { status?: number }).status = 502;
+    throw error;
+  }
+  return response;
 }

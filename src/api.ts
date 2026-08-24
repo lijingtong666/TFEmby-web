@@ -1,4 +1,4 @@
-import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, UserSession } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TvSeason, UserSession } from "./types";
 
 const sessionKey = "tfemby-web-session";
 
@@ -90,11 +90,13 @@ export const api = {
     request<ChartItem[]>(`/api/charts/${source}/${chart}?media=${media}&period=${period}`, session),
   searchTmdb: (session: UserSession, query: string) =>
     request<ChartItem[]>(`/api/tmdb/search?q=${encodeURIComponent(query)}`, session),
+  tvSeasons: (session: UserSession, tmdbId: string) =>
+    request<TvSeason[]>(`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/seasons`, session),
   requests: (session: UserSession) => request<MediaRequest[]>("/api/requests", session),
-  createRequest: (session: UserSession, tmdbId: string, mediaType: "movie" | "tv") =>
+  createRequest: (session: UserSession, tmdbId: string, mediaType: "movie" | "tv", seasonNumber?: number) =>
     request<MediaRequest>("/api/requests", session, {
       method: "POST",
-      body: JSON.stringify({ tmdbId, mediaType })
+      body: JSON.stringify({ tmdbId, mediaType, seasonNumber })
     }),
   updateRequest: (session: UserSession, id: string, status: RequestStatus) =>
     request<MediaRequest>(`/api/requests/${encodeURIComponent(id)}`, session, {

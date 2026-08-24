@@ -12,6 +12,8 @@ export type WebSettings = {
   telegramBotToken: string;
   telegramChatId: string;
   telegramApiBase: string;
+  proxyEnabled: boolean;
+  proxyUrl: string;
 };
 
 type RuntimeConfig = WebSettings & {
@@ -38,10 +40,12 @@ export const config: RuntimeConfig = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || process.env.TG_BOT_TOKEN || "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID || process.env.TG_CHAT_ID || "",
   telegramApiBase: cleanBaseUrl(process.env.TELEGRAM_API_BASE || "https://api.telegram.org"),
+  proxyEnabled: ["1", "true", "yes", "on"].includes(String(process.env.PROXY_ENABLED || "").toLowerCase()),
+  proxyUrl: cleanBaseUrl(process.env.PROXY_URL || ""),
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.4.0"
+  version: process.env.APP_VERSION || "0.5.0"
 };
 
 const settingsPath = path.resolve(config.dataDir, "settings.json");
@@ -69,6 +73,14 @@ function normalizedSettings(input: Partial<WebSettings>): WebSettings {
     throw error;
   }
 
+  const proxyEnabled = Boolean(input.proxyEnabled ?? config.proxyEnabled);
+  const proxyUrl = normalizeUrl(input.proxyUrl, "代理地址", config.proxyUrl);
+  if (proxyEnabled && !proxyUrl) {
+    const error = new Error("启用代理后必须填写 HTTP 或 HTTPS 代理地址。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
   return {
     appName,
     embyServerUrl: normalizeUrl(input.embyServerUrl, "Emby 地址"),
@@ -77,7 +89,9 @@ function normalizedSettings(input: Partial<WebSettings>): WebSettings {
     doubanApiBase: normalizeUrl(input.doubanApiBase, "豆瓣 API 地址"),
     telegramBotToken: String(input.telegramBotToken ?? config.telegramBotToken).trim(),
     telegramChatId: String(input.telegramChatId ?? config.telegramChatId).trim(),
-    telegramApiBase: normalizeUrl(input.telegramApiBase, "Telegram API 地址", "https://api.telegram.org") || "https://api.telegram.org"
+    telegramApiBase: normalizeUrl(input.telegramApiBase, "Telegram API 地址", "https://api.telegram.org") || "https://api.telegram.org",
+    proxyEnabled,
+    proxyUrl
   };
 }
 
@@ -94,7 +108,9 @@ export function getWebSettings(): WebSettings {
     doubanApiBase: config.doubanApiBase,
     telegramBotToken: config.telegramBotToken,
     telegramChatId: config.telegramChatId,
-    telegramApiBase: config.telegramApiBase
+    telegramApiBase: config.telegramApiBase,
+    proxyEnabled: config.proxyEnabled,
+    proxyUrl: config.proxyUrl
   };
 }
 

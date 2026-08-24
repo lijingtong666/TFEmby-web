@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   Library,
+  Layers3,
   Link2,
   LogIn,
   LogOut,
@@ -32,7 +33,7 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, loadSession, saveSession } from "./api";
-import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, UserSession, WebSettings } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TvSeason, UserSession, WebSettings } from "./types";
 
 type View = "overview" | "charts" | "search" | "resume" | "latest" | "requests" | "admin";
 
@@ -229,6 +230,7 @@ function MediaRow({ item }: { item: MediaItem }) {
           <span>{item.year || formatDate(item.dateCreated || item.userData?.lastPlayedDate)}</span>
         </div>
         <div className="muted">{item.type === "episode" ? "剧集单集" : item.type === "series" ? "剧集" : "电影"}</div>
+        {item.recentEpisodeRange ? <div className="episodeRange">{item.recentEpisodeRange}</div> : null}
         {item.userData?.progressPercent ? (
           <div className="progress">
             <span style={{ width: `${item.userData.progressPercent}%` }} />
@@ -399,7 +401,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.4.0"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.5.0"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -599,6 +601,7 @@ function RequestRow({ item, admin, onStatus, updating }: { item: MediaRequest; a
         </div>
         <div className="requestMeta">
           <span>{item.mediaType === "tv" ? "剧集" : "电影"}</span>
+          {item.seasonNumber ? <span>第 {item.seasonNumber} 季</span> : null}
           <span>TMDB {item.tmdbId}</span>
           {item.year ? <span>{item.year}</span> : null}
           {admin ? <span>申请人：{item.requestedBy.username}</span> : null}
@@ -614,6 +617,71 @@ function RequestRow({ item, admin, onStatus, updating }: { item: MediaRequest; a
   );
 }
 
+function SeasonPicker({ item, seasons, loading, error, requests, submitting, onRequest, onClose }: {
+  item: ChartItem | null;
+  seasons: TvSeason[];
+  loading: boolean;
+  error: string;
+  requests: MediaRequest[];
+  submitting: string;
+  onRequest: (seasonNumber: number) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!item) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [item, onClose]);
+  if (!item) return null;
+  const tmdbId = item.externalIds.tmdb || "";
+  return (
+    <div className="seasonOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="seasonModal" role="dialog" aria-modal="true" aria-label={`选择《${item.title}》的季度`}>
+        <div className="seasonModalHead">
+          <div>
+            <span>选择求片季度</span>
+            <h2>{item.title}</h2>
+          </div>
+          <button type="button" onClick={onClose} title="关闭" aria-label="关闭季度选择"><X size={20} /></button>
+        </div>
+        {loading ? <div className="notice">正在读取季度信息。</div> : null}
+        {error ? <div className="notice">{error}</div> : null}
+        {!loading && !error && !seasons.length ? <div className="notice">暂无可申请的季度。</div> : null}
+        <div className="seasonList">
+          {seasons.map((season) => {
+            const request = requests.find((candidate) =>
+              candidate.tmdbId === tmdbId &&
+              candidate.mediaType === "tv" &&
+              (candidate.seasonNumber == null || candidate.seasonNumber === season.seasonNumber) &&
+              candidate.status !== "rejected"
+            );
+            const submitKey = `${tmdbId}:${season.seasonNumber}`;
+            const disabled = season.inLibrary || Boolean(request) || submitting === submitKey;
+            return (
+              <div className="seasonRow" key={season.seasonNumber}>
+                <div>
+                  <strong>{season.name || `第 ${season.seasonNumber} 季`}</strong>
+                  <span>{season.episodeCount ? `${season.episodeCount} 集` : "集数未知"}{season.airDate ? ` · ${season.airDate}` : ""}</span>
+                </div>
+                <button type="button" disabled={disabled} className={season.inLibrary ? "inLibrary" : ""} onClick={() => onRequest(season.seasonNumber)}>
+                  {season.inLibrary || request ? <CheckCircle2 size={16} /> : <Send size={16} />}
+                  {season.inLibrary ? "库中存在" : request ? requestStatus[request.status] : submitting === submitKey ? "提交中" : `申请第 ${season.seasonNumber} 季`}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function RequestView({ session }: { session: UserSession | null }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ChartItem[]>([]);
@@ -621,6 +689,10 @@ function RequestView({ session }: { session: UserSession | null }) {
   const [submitting, setSubmitting] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [seasonTarget, setSeasonTarget] = useState<ChartItem | null>(null);
+  const [seasonMap, setSeasonMap] = useState<Record<string, TvSeason[]>>({});
+  const [seasonLoading, setSeasonLoading] = useState("");
+  const [seasonError, setSeasonError] = useState("");
   const requests = useAsync(() => (session ? api.requests(session) : Promise.resolve([])), [session?.token], [] as MediaRequest[]);
 
   async function search(event: FormEvent) {
@@ -638,16 +710,34 @@ function RequestView({ session }: { session: UserSession | null }) {
     }
   }
 
-  async function submitRequest(item: ChartItem) {
+  async function openSeasons(item: ChartItem) {
     const tmdbId = item.externalIds.tmdb;
     if (!session || !tmdbId) return;
-    setSubmitting(tmdbId);
+    setSeasonTarget(item);
+    setSeasonError("");
+    if (seasonMap[tmdbId]) return;
+    setSeasonLoading(tmdbId);
+    try {
+      const seasons = await api.tvSeasons(session, tmdbId);
+      setSeasonMap((current) => ({ ...current, [tmdbId]: seasons }));
+    } catch (err) {
+      setSeasonError((err as Error).message);
+    } finally {
+      setSeasonLoading("");
+    }
+  }
+
+  async function submitRequest(item: ChartItem, seasonNumber?: number) {
+    const tmdbId = item.externalIds.tmdb;
+    if (!session || !tmdbId) return;
+    const submitKey = seasonNumber ? `${tmdbId}:${seasonNumber}` : tmdbId;
+    setSubmitting(submitKey);
     setError("");
     setMessage("");
     try {
-      await api.createRequest(session, tmdbId, item.mediaType);
+      await api.createRequest(session, tmdbId, item.mediaType, seasonNumber);
       await requests.reload();
-      setMessage(`已提交《${item.title}》。`);
+      setMessage(`已提交《${item.title}》${seasonNumber ? `第 ${seasonNumber} 季` : ""}。`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -685,15 +775,15 @@ function RequestView({ session }: { session: UserSession | null }) {
           <div className="grid requestGrid">
             {results.map((item) => {
               const tmdbId = item.externalIds.tmdb || "";
-              const existing = requests.data.find((request) => request.tmdbId === tmdbId && request.mediaType === item.mediaType && request.status !== "rejected");
+              const existing = item.mediaType === "movie" ? requests.data.find((request) => request.tmdbId === tmdbId && request.mediaType === "movie" && request.status !== "rejected") : undefined;
               return (
                 <article className="mediaCard" key={`${item.mediaType}-${tmdbId}`}>
                   <Poster item={item} />
                   <div className="mediaTitle" title={item.title}>{item.title}</div>
                   <div className="metaLine"><span>{item.mediaType === "tv" ? "剧集" : "电影"}</span><span>·</span><span>{item.year || "未知"}</span></div>
-                  <button className="requestAction" disabled={Boolean(existing) || submitting === tmdbId} onClick={() => submitRequest(item)}>
-                    {existing ? <CheckCircle2 size={16} /> : <Send size={16} />}
-                    {existing ? requestStatus[existing.status] : submitting === tmdbId ? "提交中" : "申请"}
+                  <button className="requestAction" disabled={Boolean(existing) || submitting === tmdbId} onClick={() => item.mediaType === "tv" ? openSeasons(item) : submitRequest(item)}>
+                    {item.mediaType === "tv" ? <Layers3 size={16} /> : existing ? <CheckCircle2 size={16} /> : <Send size={16} />}
+                    {item.mediaType === "tv" ? "选择季度" : existing ? requestStatus[existing.status] : submitting === tmdbId ? "提交中" : "申请"}
                   </button>
                 </article>
               );
@@ -701,6 +791,16 @@ function RequestView({ session }: { session: UserSession | null }) {
           </div>
         </div>
       ) : null}
+      <SeasonPicker
+        item={seasonTarget}
+        seasons={seasonTarget ? seasonMap[seasonTarget.externalIds.tmdb || ""] || [] : []}
+        loading={Boolean(seasonTarget && seasonLoading === seasonTarget.externalIds.tmdb)}
+        error={seasonError}
+        requests={requests.data}
+        submitting={submitting}
+        onRequest={(seasonNumber) => seasonTarget && submitRequest(seasonTarget, seasonNumber)}
+        onClose={() => setSeasonTarget(null)}
+      />
     </section>
   );
 }
@@ -897,6 +997,16 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       </div>
 
       <div className="settingsGroup">
+        <div className="settingsGroupHead"><h3>网络代理</h3><span>仅作用于 Telegram 与 TMDB</span></div>
+        <div className="settingsGrid">
+          <SettingField label="HTTP/HTTPS 代理地址" value={draft.web.proxyUrl} onChange={(value) => updateWeb("proxyUrl", value)} placeholder="http://192.168.1.10:7890" />
+        </div>
+        <div className="settingsSwitches proxySwitches">
+          <ToggleSetting label="启用 TG/TMDB 代理" checked={draft.web.proxyEnabled} onChange={(value) => updateWeb("proxyEnabled", value)} />
+        </div>
+      </div>
+
+      <div className="settingsGroup">
         <div className="settingsGroupHead"><h3>通知高级设置</h3><span>Webhook、入库扫描、封面和元数据</span></div>
         <div className="settingsGrid">
           <SecretSettingField label="Webhook 密钥" value={bot.webhookSecret} onChange={(value) => updateBot("webhookSecret", value)} />
@@ -1033,6 +1143,7 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
               <Poster item={item} />
               <div className="mediaTitle" title={item.title}>{item.title}</div>
               <div className="metaLine"><span>{item.type === "movie" ? "电影" : item.type === "series" ? "剧集" : "单集"}</span><span>·</span><span>{formatDate(item.dateCreated)}</span></div>
+              {item.recentEpisodeRange ? <div className="episodeRange cardEpisodeRange">{item.recentEpisodeRange}</div> : null}
             </article>
           ))}
         </div>

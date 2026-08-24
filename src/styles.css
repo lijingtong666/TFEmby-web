@@ -2389,3 +2389,168 @@ h2 {
     flex-direction: column;
   }
 }
+
+.episodeRange {
+  color: var(--brand-strong);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.cardEpisodeRange {
+  min-height: 38px;
+  margin-top: 5px;
+  padding-inline: 4px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.proxySwitches {
+  max-width: 360px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.seasonOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 20, 29, 0.58);
+  backdrop-filter: blur(10px);
+  animation: detailFade 160ms ease-out;
+}
+
+.seasonModal {
+  width: min(620px, 100%);
+  max-height: min(760px, calc(100dvh - 48px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 22px;
+  background: var(--surface-raised);
+  box-shadow: 0 28px 80px rgba(10, 18, 30, 0.28);
+  animation: detailRise 180ms ease-out;
+}
+
+.seasonModalHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.seasonModalHead span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.seasonModalHead h2 {
+  margin: 5px 0 0;
+  font-size: 22px;
+}
+
+.seasonModalHead button {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.seasonModal .notice {
+  margin: 18px 0 0;
+}
+
+.seasonList {
+  display: grid;
+}
+
+.seasonRow {
+  min-width: 0;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.seasonRow:last-child {
+  border-bottom: 0;
+}
+
+.seasonRow > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.seasonRow strong {
+  overflow-wrap: anywhere;
+}
+
+.seasonRow span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.seasonRow button {
+  min-width: 128px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: var(--brand);
+  color: #ffffff;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.seasonRow button:disabled {
+  cursor: default;
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.seasonRow button.inLibrary {
+  background: color-mix(in srgb, var(--green) 12%, var(--surface));
+  color: var(--green);
+}
+
+@media (max-width: 560px) {
+  .seasonOverlay {
+    padding: 12px;
+    align-items: end;
+  }
+
+  .seasonModal {
+    max-height: calc(100dvh - 24px);
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .seasonRow {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 11px;
+    padding: 15px 0;
+  }
+
+  .seasonRow button {
+    width: 100%;
+  }
+}

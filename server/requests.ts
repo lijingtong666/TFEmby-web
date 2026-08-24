@@ -39,7 +39,7 @@ export async function listMediaRequests(session: AppSession) {
   return visible.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function createMediaRequest(session: AppSession, item: ChartItem) {
+export function createMediaRequest(session: AppSession, item: ChartItem, season?: { seasonNumber: number; seasonName: string }) {
   return mutate(async () => {
     const tmdbId = item.externalIds.tmdb;
     if (!tmdbId) {
@@ -53,10 +53,11 @@ export function createMediaRequest(session: AppSession, item: ChartItem) {
         request.requestedBy.userId === session.userId &&
         request.tmdbId === tmdbId &&
         request.mediaType === item.mediaType &&
+        (item.mediaType === "movie" || request.seasonNumber == null || request.seasonNumber === season?.seasonNumber) &&
         request.status !== "rejected"
     );
     if (duplicate) {
-      const error = new Error("你已经提交过该条目。");
+      const error = new Error(season ? `你已经提交过第 ${season.seasonNumber} 季。` : "你已经提交过该条目。");
       (error as Error & { status?: number }).status = 409;
       throw error;
     }
@@ -71,6 +72,8 @@ export function createMediaRequest(session: AppSession, item: ChartItem) {
       year: item.year,
       poster: item.poster,
       overview: item.overview,
+      seasonNumber: season?.seasonNumber,
+      seasonName: season?.seasonName,
       requestedBy: { userId: session.userId, username: session.emby?.userName || session.username },
       status: "pending",
       createdAt: timestamp,
