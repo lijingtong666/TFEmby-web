@@ -47,7 +47,7 @@ export const config: RuntimeConfig = {
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.2.1"
+  version: process.env.APP_VERSION || "0.2.2"
 };
 
 const settingsPath = path.resolve(config.dataDir, "settings.json");

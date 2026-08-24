@@ -182,7 +182,7 @@ linux/arm64
 推送包含两个架构的 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.2.1 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.2.2 ./scripts/docker-buildx-push.sh
 ```
 
 生成的 tag：

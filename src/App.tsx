@@ -196,7 +196,7 @@ function ChartDetail({ item, onClose }: { item: ChartItem | null; onClose: () =>
             <div><span>评分</span><strong><Star size={16} fill="currentColor" />{item.voteAverage ? item.voteAverage.toFixed(1) : "暂无"}</strong></div>
             <div><span>年份</span><strong>{item.year || "未知"}</strong></div>
             <div><span>上映日期</span><strong>{item.releaseDate || "未知"}</strong></div>
-            <div><span>观看状态</span><strong>{status?.watched ? "已看" : status?.progressPercent ? `已看 ${status.progressPercent}%` : status?.inLibrary ? "未观看" : "未入库"}</strong></div>
+            <div><span>入库状态</span><strong>{status?.inLibrary ? "已入库" : "未入库"}</strong></div>
           </div>
           <div className="detailOverview">
             <h2>简介</h2>
@@ -399,7 +399,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.2.1"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.2.2"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
