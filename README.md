@@ -88,28 +88,30 @@ docker run -d \
   xiaotong378/tfembyweb:latest
 ```
 
-指定 `arm64` 镜像：
+在 `arm64` NAS 上强制使用对应架构：
 
 ```bash
 docker run -d \
   --name tfemby-web \
+  --platform linux/arm64 \
   --restart unless-stopped \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
   --env-file .env \
-  xiaotong378/tfembyweb:0.1.1-arm64
+  xiaotong378/tfembyweb:latest
 ```
 
-指定 `amd64` 镜像：
+在 `amd64` NAS 上强制使用对应架构：
 
 ```bash
 docker run -d \
   --name tfemby-web \
+  --platform linux/amd64 \
   --restart unless-stopped \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
   --env-file .env \
-  xiaotong378/tfembyweb:0.1.1-amd64
+  xiaotong378/tfembyweb:latest
 ```
 
 查看日志：
@@ -206,7 +208,7 @@ linux/amd64
 linux/arm64
 ```
 
-推送多架构 manifest 以及两个架构独立 tag：
+推送包含两个架构的 `latest`：
 
 ```bash
 IMAGE=xiaotong378/tfembyweb VERSION=0.1.1 ./scripts/docker-buildx-push.sh
@@ -216,9 +218,6 @@ IMAGE=xiaotong378/tfembyweb VERSION=0.1.1 ./scripts/docker-buildx-push.sh
 
 ```text
 xiaotong378/tfembyweb:latest
-xiaotong378/tfembyweb:0.1.1
-xiaotong378/tfembyweb:0.1.1-amd64
-xiaotong378/tfembyweb:0.1.1-arm64
 ```
 
 本机只构建当前架构：
