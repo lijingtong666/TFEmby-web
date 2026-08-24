@@ -56,6 +56,7 @@ export type TgBotConfig = {
   pollIntervalSeconds: number;
   latestLimit: number;
   notifyFirstRun: boolean;
+  notifyPlayback: boolean;
 };
 
 const botDataDir = path.resolve(config.dataDir, "telegram");
@@ -109,6 +110,7 @@ function formatDateTime(value: unknown) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hour12: false
   }).format(date).replaceAll("/", "-");
 }
@@ -146,11 +148,12 @@ function defaultBotConfig(): TgBotConfig {
     doubanFallbackEnabled: true,
     enableCovers: true,
     overviewMaxLength: 420,
-    monitoredEvents: "library.new,item.added,item.created,itemadded",
+    monitoredEvents: "library.new,item.added,item.created,itemadded,playback.start",
     includeTypes: ["Movie", "Episode"],
     pollIntervalSeconds: 300,
     latestLimit: 20,
-    notifyFirstRun: false
+    notifyFirstRun: false,
+    notifyPlayback: true
   };
 }
 
@@ -173,7 +176,8 @@ function normalizeBotConfig(input: Partial<TgBotConfig>): TgBotConfig {
     includeTypes: Array.isArray(input.includeTypes) ? input.includeTypes.map(String).filter(Boolean) : fallback.includeTypes,
     pollIntervalSeconds: clamp(input.pollIntervalSeconds, 60, 86400, fallback.pollIntervalSeconds),
     latestLimit: clamp(input.latestLimit, 1, 100, fallback.latestLimit),
-    notifyFirstRun: input.notifyFirstRun ?? fallback.notifyFirstRun
+    notifyFirstRun: input.notifyFirstRun ?? fallback.notifyFirstRun,
+    notifyPlayback: input.notifyPlayback ?? fallback.notifyPlayback
   };
 }
 
@@ -569,7 +573,8 @@ function eventTime(item: EmbyItem, payload?: EmbyItem) {
 
 function formatEventDateTime(value: unknown) {
   const text = String(value || "").trim();
-  const match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(text)) return formatDateTime(value);
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)/);
   return match ? `${match[1]} ${match[2]}` : formatDateTime(value);
 }
 
@@ -610,9 +615,8 @@ function posterSource(settings: TgBotConfig, item: EmbyItem, metadata: Metadata)
   return { url: "", source: "none" as const };
 }
 
-async function sendLibraryNotification(settings: TgBotConfig, item: EmbyItem, metadata: Metadata, payload?: EmbyItem) {
+async function sendMediaNotification(settings: TgBotConfig, item: EmbyItem, metadata: Metadata, message: string) {
   requireValues(settings, ["telegramBotToken", "telegramChatId"]);
-  const message = formatLibraryMessage(settings, item, metadata, payload);
   const poster = posterSource(settings, item, metadata);
   for (const chatId of parseChatIds(settings.telegramChatId)) {
     if (poster.url) {
@@ -635,6 +639,10 @@ async function sendLibraryNotification(settings: TgBotConfig, item: EmbyItem, me
     }
     await sendBotText(settings, message, chatId);
   }
+}
+
+async function sendLibraryNotification(settings: TgBotConfig, item: EmbyItem, metadata: Metadata, payload?: EmbyItem) {
+  return sendMediaNotification(settings, item, metadata, formatLibraryMessage(settings, item, metadata, payload));
 }
 
 async function getLatestItems(settings: TgBotConfig, limit = settings.latestLimit) {
@@ -709,6 +717,82 @@ function webhookEvent(payload: EmbyItem) {
   return String(webhookValue(payload, ["Event", "NotificationType", "event_type", "EventName"]));
 }
 
+function playbackStartEvent(event: string) {
+  const normalized = event.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return ["playbackstart", "playbackstarted", "playbackstarting"].includes(normalized);
+}
+
+function firstPayloadValue(values: unknown[]) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "");
+}
+
+function playbackUser(payload: EmbyItem) {
+  return String(firstPayloadValue([
+    payload.User?.Name,
+    payload.User?.Username,
+    payload.Session?.UserName,
+    payload.Session?.User?.Name,
+    payload.PlaybackInfo?.UserName,
+    payload.UserName,
+    payload.Username
+  ]) || "未知用户");
+}
+
+function playbackDevice(payload: EmbyItem) {
+  const session = payload.Session || {};
+  const device = String(firstPayloadValue([session.DeviceName, payload.PlaybackInfo?.DeviceName, payload.DeviceName, payload.Device]) || "").trim();
+  const client = String(firstPayloadValue([session.Client, payload.PlaybackInfo?.Client, payload.Client, payload.AppName, payload.PlayerName]) || "").trim();
+  return [...new Set([device, client].filter(Boolean))].join(" / ") || "未知设备";
+}
+
+function playbackIp(payload: EmbyItem) {
+  return String(firstPayloadValue([
+    payload.Session?.RemoteEndPoint,
+    payload.Session?.RemoteEndpoint,
+    payload.PlaybackInfo?.RemoteEndPoint,
+    payload.PlaybackInfo?.RemoteEndpoint,
+    payload.RemoteEndPoint,
+    payload.RemoteEndpoint,
+    payload.IpAddress,
+    payload.IPAddress,
+    payload.ClientIp
+  ]) || "未知");
+}
+
+function playbackSessionId(payload: EmbyItem) {
+  return String(firstPayloadValue([payload.Session?.Id, payload.SessionId, payload.PlaySessionId]) || "");
+}
+
+function playbackTitle(item: EmbyItem) {
+  if (item.Type !== "Episode") return displayTitle(item);
+  const series = String(item.SeriesName || "未命名剧集");
+  const token = episodeToken(item);
+  const episodeName = String(item.Name || "").trim();
+  return [series, token, episodeName && episodeName !== series ? episodeName : ""].filter(Boolean).join(" - ");
+}
+
+export function formatPlaybackMessage(settings: TgBotConfig, item: EmbyItem, payload: EmbyItem) {
+  const overview = String(item.Overview || payload.Item?.Overview || "").trim();
+  const maxOverview = Math.min(320, clamp(settings.overviewMaxLength, 80, 2000, 320));
+  const trimmedOverview = overview.length > maxOverview ? `${overview.slice(0, maxOverview - 3).trim()}...` : overview;
+  const lines = [
+    "▶️ <b>用户开始播放</b>",
+    "",
+    `<b>用户：</b>${escapeHtml(playbackUser(payload))}`,
+    `<b>影片：</b>${escapeHtml(playbackTitle(item))}`,
+    `<b>设备：</b>${escapeHtml(playbackDevice(payload))}`,
+    `<b>IP 地址：</b><code>${escapeHtml(playbackIp(payload))}</code>`,
+    `<b>日期时间：</b>${escapeHtml(formatEventDateTime(eventTime(item, payload)))}`
+  ];
+  if (trimmedOverview) lines.push("", "📝 <b>剧情简介：</b>", escapeHtml(trimmedOverview));
+  return lines.join("\n");
+}
+
+async function sendPlaybackNotification(settings: TgBotConfig, item: EmbyItem, payload: EmbyItem) {
+  const metadata = await buildMetadata(settings, item);
+  await sendMediaNotification(settings, item, metadata, formatPlaybackMessage(settings, item, payload));
+}
+
 function isWebhookTest(payload: EmbyItem) {
   if (!payload || !Object.keys(payload).length) return true;
   const event = webhookEvent(payload).toLowerCase();
@@ -739,6 +823,32 @@ export async function handleEmbyWebhook(payload: EmbyItem, headers: Record<strin
     return { ignored: false, test: true, sent, telegramError: state.lastError || undefined };
   }
   const event = webhookEvent(payload);
+  if (playbackStartEvent(event)) {
+    if (!settings.notifyPlayback) {
+      state.lastSummary = "Webhook 已忽略：播放通知未启用";
+      await saveState(state);
+      return { ignored: true, reason: "播放通知未启用" };
+    }
+    let item = normalizeWebhookItem(payload);
+    if (item.Id) {
+      try { item = { ...(await getEmbyItem(settings, String(item.Id))), ...item }; } catch (error) { addLog(`读取 Emby 播放项目失败：${(error as Error).message}`); }
+    }
+    if (!item.Name && !item.SeriesName) throw new Error("Webhook 播放内容里没有项目名称或 ItemId");
+    const eventAt = formatEventDateTime(eventTime(item, payload));
+    const dedupeKey = `playback:${playbackSessionId(payload) || playbackUser(payload)}:${item.Id || item.SeriesId || item.Name}:${eventAt}`;
+    if (state.seen[dedupeKey]) {
+      state.lastSummary = `Webhook 已忽略：重复播放 ${displayTitle(item)}`;
+      await saveState(state);
+      return { ignored: true, reason: "重复播放事件" };
+    }
+    await sendPlaybackNotification(settings, item, payload);
+    state.seen[dedupeKey] = { title: displayTitle(item), kind: "播放", type: String(item.Type), eventAt, at: nowIso() };
+    state.lastError = "";
+    state.lastSummary = `播放通知已推送：${playbackUser(payload)} / ${displayTitle(item)}`;
+    await saveState(state);
+    addLog(state.lastSummary);
+    return { ignored: false, playback: true, title: displayTitle(item), user: playbackUser(payload) };
+  }
   if (!monitoredEvent(settings, event)) return { ignored: true, reason: `非入库事件：${event}` };
   let item = normalizeWebhookItem(payload);
   if (item.Id) {

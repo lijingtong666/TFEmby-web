@@ -1762,6 +1762,112 @@ h2 {
   margin-top: 15px;
 }
 
+.webhookGuide {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--brand) 4%, var(--surface));
+}
+
+.webhookGuideHead,
+.webhookGuideHead > div,
+.webhookGuideHead > div > div {
+  display: flex;
+  align-items: center;
+}
+
+.webhookGuideHead {
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.webhookGuideHead > div {
+  min-width: 0;
+  gap: 10px;
+}
+
+.webhookGuideHead > div > div {
+  min-width: 0;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.webhookGuideHead strong {
+  font-size: 15px;
+}
+
+.webhookGuideHead span,
+.webhookGuide p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.webhookGuideIcon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--brand-strong) !important;
+  background: color-mix(in srgb, var(--brand) 11%, var(--surface));
+}
+
+.webhookAddress {
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  background: var(--surface);
+}
+
+.webhookAddress span,
+.webhookSpecs span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.webhookAddress code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.webhookSpecs {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.webhookSpecs > div {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 5px;
+  background: var(--surface-soft);
+}
+
+.webhookSpecs strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.webhookGuide p {
+  margin: 11px 0 0;
+  line-height: 1.6;
+}
+
 .settingsSwitches {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1857,6 +1963,10 @@ h2 {
 }
 
 @media (max-width: 920px) {
+  .webhookSpecs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .settingsSwitches {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1871,8 +1981,24 @@ h2 {
   }
 
   .settingsGrid,
-  .settingsSwitches {
+  .settingsSwitches,
+  .webhookSpecs {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .webhookGuideHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .webhookGuideHead .softBtn {
+    width: 100%;
+  }
+
+  .webhookAddress {
+    align-items: flex-start;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
   }
 
   .settingsSave {

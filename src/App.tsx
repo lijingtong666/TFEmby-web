@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clapperboard,
   ClipboardList,
+  Copy,
   Flame,
   ExternalLink,
   Eye,
@@ -29,6 +30,7 @@ import {
   Sun,
   TestTube2,
   Tv,
+  Webhook,
   X
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
@@ -390,7 +392,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.1"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.2"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -807,11 +809,12 @@ const defaultBotConfig: TgBotConfig = {
   doubanFallbackEnabled: true,
   enableCovers: true,
   overviewMaxLength: 420,
-  monitoredEvents: "library.new,item.added,item.created,itemadded",
+  monitoredEvents: "library.new,item.added,item.created,itemadded,playback.start",
   includeTypes: ["Movie", "Episode"],
   pollIntervalSeconds: 300,
   latestLimit: 20,
-  notifyFirstRun: false
+  notifyFirstRun: false,
+  notifyPlayback: true
 };
 
 function SettingField({ label, value, onChange, placeholder, type = "text", min, max }: {
@@ -867,6 +870,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (settings.data) {
@@ -926,11 +930,22 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
   if (!draft?.bot) return <div className="notice">{settings.error || "系统设置暂时无法读取。"}</div>;
 
   const bot = draft.bot;
+  const webhookBaseUrl = `${window.location.origin}/webhook/emby`;
+  const webhookUrl = bot.webhookSecret ? `${webhookBaseUrl}?token=${encodeURIComponent(bot.webhookSecret)}` : webhookBaseUrl;
   const setNumber = (key: "pollIntervalSeconds" | "latestLimit" | "overviewMaxLength", value: string) => updateBot(key, Number(value));
   const toggleIncludeType = (type: string, checked: boolean) => {
     const next = checked ? Array.from(new Set([...bot.includeTypes, type])) : bot.includeTypes.filter((item) => item !== type);
     updateBot("includeTypes", next);
   };
+  async function copyWebhookUrl() {
+    try {
+      await navigator.clipboard.writeText(webhookUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setError("无法复制，请手动选择 Webhook 地址。");
+    }
+  }
 
   return (
     <form className="settingsForm" onSubmit={save}>
@@ -975,7 +990,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       </div>
 
       <div className="settingsGroup">
-        <div className="settingsGroupHead"><h3>Telegram 通知</h3><span>求片和入库消息推送</span></div>
+        <div className="settingsGroupHead"><h3>Telegram 通知</h3><span>求片、入库和用户播放消息推送</span></div>
         <div className="settingsGrid">
           <SecretSettingField label="Bot Token" value={draft.web.telegramBotToken} onChange={(value) => updateWeb("telegramBotToken", value)} />
           <SettingField label="Chat ID" value={draft.web.telegramChatId} onChange={(value) => updateWeb("telegramChatId", value)} placeholder="多个 ID 使用英文逗号分隔" />
@@ -999,6 +1014,26 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
 
       <div className="settingsGroup">
         <div className="settingsGroupHead"><h3>通知高级设置</h3><span>Webhook、入库扫描、封面和元数据</span></div>
+        <div className="webhookGuide">
+          <div className="webhookGuideHead">
+            <div>
+              <span className="webhookGuideIcon"><Webhook size={19} /></span>
+              <div><strong>Emby Webhook 配置</strong><span>在 Emby 后台的“通知 / Webhooks”中新增通知</span></div>
+            </div>
+            <button type="button" className="softBtn" onClick={copyWebhookUrl}><Copy size={16} />{copied ? "已复制" : "复制地址"}</button>
+          </div>
+          <div className="webhookAddress">
+            <span>默认地址</span>
+            <code>{webhookUrl}</code>
+          </div>
+          <div className="webhookSpecs">
+            <div><span>名称</span><strong>TFEmby Web</strong></div>
+            <div><span>请求内容类型</span><strong>application/json</strong></div>
+            <div><span>入库通知事件</span><strong>新增媒体 / Item Added</strong></div>
+            <div><span>播放通知事件</span><strong>播放开始 / Playback Start</strong></div>
+          </div>
+          <p>只需选择“新增媒体”和“播放开始”两类事件。保存后可在 Emby 中发送测试通知，后台状态会显示最近一次 Webhook 接收时间。</p>
+        </div>
         <div className="settingsGrid">
           <SecretSettingField label="Webhook 密钥" value={bot.webhookSecret} onChange={(value) => updateBot("webhookSecret", value)} />
           <SettingField label="监听事件" value={bot.monitoredEvents} onChange={(value) => updateBot("monitoredEvents", value)} />
@@ -1008,6 +1043,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
         </div>
         <div className="settingsSwitches">
           <ToggleSetting label="通知首次扫描" checked={bot.notifyFirstRun} onChange={(value) => updateBot("notifyFirstRun", value)} />
+          <ToggleSetting label="播放开始通知" checked={bot.notifyPlayback} onChange={(value) => updateBot("notifyPlayback", value)} />
           <ToggleSetting label="发送封面" checked={bot.enableCovers} onChange={(value) => updateBot("enableCovers", value)} />
           <ToggleSetting label="豆瓣兜底" checked={bot.doubanFallbackEnabled} onChange={(value) => updateBot("doubanFallbackEnabled", value)} />
         </div>

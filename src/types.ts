@@ -119,6 +119,7 @@ export type TgBotConfig = {
   pollIntervalSeconds: number;
   latestLimit: number;
   notifyFirstRun: boolean;
+  notifyPlayback: boolean;
 };
 
 export type AdminSettings = {

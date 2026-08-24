@@ -55,6 +55,15 @@ http://NAS-IP:8787/webhook/emby
 http://NAS-IP:8787/webhook/emby?token=你的密钥
 ```
 
+Webhook 配置：
+
+- 名称：`TFEmby Web`
+- 请求内容类型：`application/json`
+- 入库通知事件：`新增媒体 / Item Added`
+- 播放通知事件：`播放开始 / Playback Start`
+
+播放开始通知包含 Emby 用户、影片名称、播放设备与客户端、IP 地址、日期时间，并在可用时发送封面和剧情简介。
+
 ### Docker
 
 ```bash
@@ -130,7 +139,7 @@ docker compose down
 发布唯一的多架构 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.6.1 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.6.2 ./scripts/docker-buildx-push.sh
 ```
 
 镜像平台：
