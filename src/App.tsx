@@ -5,6 +5,8 @@ import {
   Bot,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   ClipboardList,
   Copy,
@@ -36,7 +38,7 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, loadSession, saveSession } from "./api";
-import type { AdminSettings, AppConfig, ChartItem, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TvSeason, UserSession, WebSettings } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession, WebSettings } from "./types";
 
 type View = "overview" | "charts" | "search" | "resume" | "latest" | "requests" | "admin";
 
@@ -72,6 +74,25 @@ const chartOptions = [
   { label: "豆瓣剧集月榜", source: "douban", chart: "monthly", media: "tv", period: "month", icon: <Library size={18} /> },
   { label: "豆瓣 TOP250", source: "douban", chart: "top250", media: "movie", period: "all", icon: <Star size={18} /> }
 ];
+
+const movieGenres = [
+  [28, "动作"], [12, "冒险"], [16, "动画"], [35, "喜剧"], [80, "犯罪"], [99, "纪录片"],
+  [18, "剧情"], [10751, "家庭"], [14, "奇幻"], [36, "历史"], [27, "恐怖"], [10402, "音乐"],
+  [9648, "悬疑"], [10749, "爱情"], [878, "科幻"], [53, "惊悚"], [10752, "战争"], [37, "西部"]
+] as const;
+
+const tvGenres = [
+  [10759, "动作冒险"], [16, "动画"], [35, "喜剧"], [80, "犯罪"], [99, "纪录片"], [18, "剧情"],
+  [10751, "家庭"], [10762, "儿童"], [9648, "悬疑"], [10764, "真人秀"], [10765, "科幻奇幻"],
+  [10766, "肥皂剧"], [10767, "脱口秀"], [10768, "战争政治"], [37, "西部"]
+] as const;
+
+const emptyChartPage: ChartPage = { items: [], page: 1, totalPages: 1, totalResults: 0 };
+
+function pageNumbers(current: number, total: number) {
+  const values = new Set([1, total, current - 1, current, current + 1]);
+  return [...values].filter((value) => value >= 1 && value <= total).sort((left, right) => left - right);
+}
 
 function useAsync<T>(loader: () => Promise<T>, deps: unknown[], initial: T) {
   const [data, setData] = useState<T>(initial);
@@ -155,7 +176,14 @@ function ChartCard({ item, onOpen }: { item: ChartItem; onOpen: () => void }) {
   );
 }
 
-function ChartDetail({ item, onClose }: { item: ChartItem | null; onClose: () => void }) {
+function ChartDetail({ item, session, onClose }: { item: ChartItem | null; session: EmbySession | null; onClose: () => void }) {
+  const [details, setDetails] = useState<TmdbTitleDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [seasonDetail, setSeasonDetail] = useState<TvSeasonDetail | null>(null);
+  const [seasonLoading, setSeasonLoading] = useState(false);
+
   useEffect(() => {
     if (!item) return;
     const previousOverflow = document.body.style.overflow;
@@ -170,49 +198,143 @@ function ChartDetail({ item, onClose }: { item: ChartItem | null; onClose: () =>
     };
   }, [item, onClose]);
 
+  useEffect(() => {
+    const tmdbId = item?.externalIds.tmdb;
+    setDetails(null);
+    setDetailsError("");
+    setSelectedSeason(null);
+    setSeasonDetail(null);
+    setDetailsLoading(false);
+    if (!item || !tmdbId || !/^\d+$/.test(tmdbId)) return;
+    let alive = true;
+    setDetailsLoading(true);
+    api.tmdbDetails(tmdbId, item.mediaType, session)
+      .then((value) => {
+        if (!alive) return;
+        setDetails(value);
+        setSelectedSeason(value.seasons[0]?.seasonNumber || null);
+      })
+      .catch((error: Error) => alive && setDetailsError(error.message))
+      .finally(() => alive && setDetailsLoading(false));
+    return () => { alive = false; };
+  }, [item, session?.accessToken]);
+
+  useEffect(() => {
+    const tmdbId = item?.externalIds.tmdb;
+    setSeasonDetail(null);
+    setSeasonLoading(false);
+    if (!tmdbId || !selectedSeason) return;
+    let alive = true;
+    setDetailsError("");
+    setSeasonLoading(true);
+    api.tmdbSeason(tmdbId, selectedSeason, session)
+      .then((value) => alive && setSeasonDetail(value))
+      .catch((error: Error) => alive && setDetailsError(error.message))
+      .finally(() => alive && setSeasonLoading(false));
+    return () => { alive = false; };
+  }, [item?.externalIds.tmdb, selectedSeason, session?.accessToken]);
+
   if (!item) return null;
-  const status = item.libraryStatus;
-  const tmdbId = item.externalIds.tmdb;
-  const doubanId = item.externalIds.douban;
-  const tmdbUrl = tmdbId && /^\d+$/.test(tmdbId) ? `https://www.themoviedb.org/${item.mediaType}/${tmdbId}` : "";
+  const resolvedItem: ChartItem = details?.item
+    ? { ...item, ...details.item, source: item.source, chart: item.chart, rank: item.rank, libraryStatus: details.item.libraryStatus || item.libraryStatus }
+    : item;
+  const status = resolvedItem.libraryStatus;
+  const tmdbId = resolvedItem.externalIds.tmdb;
+  const doubanId = resolvedItem.externalIds.douban;
+  const tmdbUrl = tmdbId && /^\d+$/.test(tmdbId) ? `https://www.themoviedb.org/${resolvedItem.mediaType}/${tmdbId}` : "";
   const doubanUrl = doubanId && /^\d+$/.test(doubanId) ? `https://movie.douban.com/subject/${doubanId}/` : "";
+  const seasons = details?.seasons || [];
+  const activeSeason = seasonDetail?.seasonNumber === selectedSeason ? seasonDetail : seasons.find((season) => season.seasonNumber === selectedSeason);
+  const totalSeasons = resolvedItem.totalSeasons || seasons.length;
+  const totalEpisodes = resolvedItem.totalEpisodes || seasons.reduce((total, season) => total + (season.episodeCount || 0), 0);
 
   return (
     <div className="detailOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="detailModal" role="dialog" aria-modal="true" aria-label={`${item.title}详情`}>
+      <section className="detailModal" role="dialog" aria-modal="true" aria-label={`${resolvedItem.title}详情`}>
         <button className="detailClose" onClick={onClose} title="关闭详情" aria-label="关闭详情"><X size={21} /></button>
         <div className="detailVisual">
-          {item.backdrop || item.poster ? <img className="detailBackdrop" src={item.backdrop || item.poster} alt="" /> : <div className="detailBackdrop detailBackdropFallback" />}
+          {resolvedItem.backdrop || resolvedItem.poster ? <img className="detailBackdrop" src={resolvedItem.backdrop || resolvedItem.poster} alt="" /> : <div className="detailBackdrop detailBackdropFallback" />}
           <div className="detailShade" />
           <div className="detailHeading">
-            <div className="detailPoster"><Poster item={item} /></div>
+            <div className="detailPoster"><Poster item={resolvedItem} /></div>
             <div className="detailTitleBlock">
               <div className="detailBadges">
-                <span>{item.mediaType === "tv" ? "剧集" : "电影"}</span>
-                <span>{item.source === "tmdb" ? "TMDB" : item.source === "douban" ? "豆瓣" : "热榜"}</span>
+                <span>{resolvedItem.mediaType === "tv" ? "剧集" : "电影"}</span>
+                <span>{resolvedItem.source === "tmdb" ? "TMDB" : resolvedItem.source === "douban" ? "豆瓣" : "热榜"}</span>
                 {status?.inLibrary ? <span className="inLibraryBadge"><CheckCircle2 size={13} />已入库</span> : null}
               </div>
-              <h1>{item.title}</h1>
-              {item.originalTitle && item.originalTitle !== item.title ? <p>{item.originalTitle}</p> : null}
+              <h1>{resolvedItem.title}</h1>
+              {resolvedItem.originalTitle && resolvedItem.originalTitle !== resolvedItem.title ? <p>{resolvedItem.originalTitle}</p> : null}
             </div>
           </div>
         </div>
         <div className="detailContent">
+          {detailsLoading ? <div className="detailLoading">正在读取完整资料。</div> : null}
+          {detailsError ? <div className="notice">{detailsError}</div> : null}
           <div className="detailFacts">
-            <div><span>评分</span><strong><Star size={16} fill="currentColor" />{item.voteAverage ? item.voteAverage.toFixed(1) : "暂无"}</strong></div>
-            <div><span>年份</span><strong>{item.year || "未知"}</strong></div>
-            <div><span>上映日期</span><strong>{item.releaseDate || "未知"}</strong></div>
+            <div><span>评分</span><strong><Star size={16} fill="currentColor" />{resolvedItem.voteAverage ? resolvedItem.voteAverage.toFixed(1) : "暂无"}</strong></div>
+            <div><span>年份</span><strong>{resolvedItem.year || "未知"}</strong></div>
+            <div><span>{resolvedItem.mediaType === "tv" ? "首播日期" : "上映日期"}</span><strong>{resolvedItem.releaseDate || "未知"}</strong></div>
+            {resolvedItem.mediaType === "tv" ? <div><span>总季数</span><strong>{totalSeasons ? `${totalSeasons} 季` : "未知"}</strong></div> : null}
+            {resolvedItem.mediaType === "tv" ? <div><span>总集数</span><strong>{totalEpisodes ? `${totalEpisodes} 集` : "未知"}</strong></div> : null}
             <div><span>入库状态</span><strong>{status?.inLibrary ? "已入库" : "未入库"}</strong></div>
           </div>
           <div className="detailOverview">
             <h2>简介</h2>
-            <p>{item.overview || "暂无简介。"}</p>
+            <p>{resolvedItem.overview || "暂无简介。"}</p>
           </div>
+          {resolvedItem.mediaType === "tv" && seasons.length ? (
+            <div className="detailSeasons">
+              <div className="detailSectionTitle"><h2>季度与剧集</h2><span>共 {totalSeasons || seasons.length} 季 · {totalEpisodes || "未知"} 集</span></div>
+              <div className="detailSeasonTabs" role="tablist" aria-label="选择季度">
+                {seasons.map((season) => (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedSeason === season.seasonNumber}
+                    className={selectedSeason === season.seasonNumber ? "active" : ""}
+                    key={season.seasonNumber}
+                    onClick={() => setSelectedSeason(season.seasonNumber)}
+                  >
+                    第 {season.seasonNumber} 季
+                    {season.inLibrary ? <CheckCircle2 size={13} /> : null}
+                  </button>
+                ))}
+              </div>
+              {seasonLoading ? <div className="detailLoading">正在读取第 {selectedSeason} 季。</div> : null}
+              {activeSeason ? (
+                <div className={`detailSeasonPanel ${activeSeason.poster ? "" : "noPoster"}`}>
+                  {activeSeason.poster ? <img src={activeSeason.poster} alt={activeSeason.name} /> : null}
+                  <div className="detailSeasonBody">
+                    <div className="detailSeasonHead">
+                      <div><strong>{activeSeason.name}</strong><span>{activeSeason.episodeCount ? `${activeSeason.episodeCount} 集` : "集数未知"}{activeSeason.airDate ? ` · ${activeSeason.airDate}` : ""}</span></div>
+                      {activeSeason.inLibrary ? <span className="seasonLibraryState"><CheckCircle2 size={14} />库中存在</span> : null}
+                    </div>
+                    {seasonDetail?.seasonNumber === selectedSeason && seasonDetail.overview ? <p>{seasonDetail.overview}</p> : null}
+                    {seasonDetail?.episodes.length ? (
+                      <div className="detailEpisodeList">
+                        {seasonDetail.episodes.map((episode) => (
+                          <div className="detailEpisode" key={episode.episodeNumber}>
+                            {episode.still ? <img src={episode.still} alt="" loading="lazy" /> : <div className="episodeStillFallback">E{episode.episodeNumber}</div>}
+                            <div>
+                              <strong>第 {episode.episodeNumber} 集 · {episode.name}</strong>
+                              <span>{episode.airDate || "日期未知"}{episode.runtime ? ` · ${episode.runtime} 分钟` : ""}</span>
+                              {episode.overview ? <p>{episode.overview}</p> : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="detailFooter">
             <div className="detailIds">
               {tmdbId ? <span>TMDB ID {tmdbId}</span> : null}
               {doubanId ? <span>豆瓣 ID {doubanId}</span> : null}
-              {item.externalIds.imdb ? <span>IMDb {item.externalIds.imdb}</span> : null}
+              {resolvedItem.externalIds.imdb ? <span>IMDb {resolvedItem.externalIds.imdb}</span> : null}
             </div>
             <div className="detailLinks">
               {tmdbUrl ? <a href={tmdbUrl} target="_blank" rel="noreferrer">TMDB <ExternalLink size={15} /></a> : null}
@@ -395,7 +517,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.5"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.6"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -436,11 +558,17 @@ function ChartView({ session }: { session: EmbySession | null }) {
   const [selected, setSelected] = useState(chartOptions[0]);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ChartItem | null>(null);
+  const [page, setPage] = useState(1);
+  const [year, setYear] = useState("");
+  const [genre, setGenre] = useState("");
+  const genreOptions = selected.media === "tv" ? tvGenres : movieGenres;
+  const years = useMemo(() => Array.from({ length: new Date().getFullYear() - 1949 }, (_, index) => new Date().getFullYear() - index), []);
   const { data, loading, error } = useAsync(
-    () => api.chart(selected.source, selected.chart, selected.media, selected.period, session),
-    [selected, session?.accessToken],
-    [] as ChartItem[]
+    () => api.chart(selected.source, selected.chart, selected.media, selected.period, page, year, genre, session),
+    [selected, page, year, genre, session?.accessToken],
+    emptyChartPage
   );
+  const pages = pageNumbers(data.page, data.totalPages);
 
   return (
     <section className="panel">
@@ -462,6 +590,8 @@ function ChartView({ session }: { session: EmbySession | null }) {
                   key={`${option.source}-${option.chart}-${option.media}-${option.period}`}
                   onClick={() => {
                     setSelected(option);
+                    setPage(1);
+                    setGenre("");
                     setOpen(false);
                   }}
                 >
@@ -473,9 +603,41 @@ function ChartView({ session }: { session: EmbySession | null }) {
           ) : null}
         </div>
       </div>
+      <div className="chartToolbar">
+        <label>
+          <span>年份</span>
+          <select value={year} onChange={(event) => { setYear(event.target.value); setPage(1); }}>
+            <option value="">全部年份</option>
+            {years.map((value) => <option value={value} key={value}>{value} 年</option>)}
+          </select>
+        </label>
+        <label>
+          <span>影片类型</span>
+          <select value={genre} onChange={(event) => { setGenre(event.target.value); setPage(1); }}>
+            <option value="">全部类型</option>
+            {genreOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+          </select>
+        </label>
+        <div className="chartCount">
+          <strong>{data.totalResults.toLocaleString("zh-CN")}</strong>
+          <span>条结果 · 第 {data.page}/{data.totalPages} 页</span>
+        </div>
+      </div>
       {error ? <div className="notice">{error}</div> : null}
-      {loading ? <div className="loadingGrid" /> : <div className="grid">{data.map((item) => <ChartCard key={`${item.source}-${item.rank}-${item.title}`} item={item} onOpen={() => setDetail(item)} />)}</div>}
-      <ChartDetail item={detail} onClose={() => setDetail(null)} />
+      {loading ? <div className="loadingGrid" /> : data.items.length ? <div className="grid">{data.items.map((item) => <ChartCard key={`${item.source}-${item.rank}-${item.title}`} item={item} onOpen={() => setDetail(item)} />)}</div> : <div className="notice">当前筛选条件下暂无榜单内容。</div>}
+      {data.totalPages > 1 ? (
+        <nav className="pagination" aria-label="热榜分页">
+          <button type="button" className="pageArrow" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} title="上一页" aria-label="上一页"><ChevronLeft size={19} /></button>
+          {pages.map((value, index) => (
+            <div className="pageSlot" key={value}>
+              {index > 0 && value - pages[index - 1] > 1 ? <span>…</span> : null}
+              <button type="button" className={value === data.page ? "active" : ""} disabled={loading} onClick={() => setPage(value)}>{value}</button>
+            </div>
+          ))}
+          <button type="button" className="pageArrow" disabled={page >= data.totalPages || loading} onClick={() => setPage((current) => Math.min(data.totalPages, current + 1))} title="下一页" aria-label="下一页"><ChevronRight size={19} /></button>
+        </nav>
+      ) : null}
+      <ChartDetail item={detail} session={session} onClose={() => setDetail(null)} />
     </section>
   );
 }

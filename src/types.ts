@@ -51,6 +51,20 @@ export type TvSeason = {
   inLibrary: boolean;
 };
 
+export type TvEpisode = {
+  episodeNumber: number;
+  name: string;
+  overview?: string;
+  airDate?: string;
+  runtime?: number;
+  still?: string;
+};
+
+export type TvSeasonDetail = TvSeason & {
+  overview?: string;
+  episodes: TvEpisode[];
+};
+
 export type ChartItem = {
   source: "tmdb" | "douban" | "demo";
   chart: string;
@@ -64,6 +78,8 @@ export type ChartItem = {
   overview?: string;
   voteAverage?: number;
   releaseDate?: string;
+  totalSeasons?: number;
+  totalEpisodes?: number;
   externalIds: {
     tmdb?: string;
     imdb?: string;
@@ -76,6 +92,18 @@ export type ChartItem = {
     embyId?: string;
     lastPlayedDate?: string;
   };
+};
+
+export type ChartPage = {
+  items: ChartItem[];
+  page: number;
+  totalPages: number;
+  totalResults: number;
+};
+
+export type TmdbTitleDetails = {
+  item: ChartItem;
+  seasons: TvSeason[];
 };
 
 export type AppConfig = {

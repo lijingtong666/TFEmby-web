@@ -18,7 +18,7 @@ import {
 } from "./emby.js";
 import { createMediaRequest, listMediaRequests, updateMediaRequest } from "./requests.js";
 import { enrichChartPosters } from "./posters.js";
-import { fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
+import { fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasonDetails, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
 import {
   controlTgBot,
   getTgBotConfig,
@@ -285,11 +285,18 @@ app.get(
     const chart = scalar(req.params.chart, "global");
     const media = scalar(req.query.media, "all");
     const period = scalar(req.query.period, "week");
+    const page = Math.min(30, Math.max(1, Number(req.query.page) || 1));
+    const requestedYear = Number(req.query.year);
+    const year = Number.isInteger(requestedYear) && requestedYear >= 1900 && requestedYear <= new Date().getFullYear() + 2 ? requestedYear : undefined;
+    const requestedGenre = Number(req.query.genre);
+    const genre = Number.isInteger(requestedGenre) && requestedGenre > 0 ? requestedGenre : undefined;
     const session = sessionFromAuthHeader(req.headers.authorization)?.emby || sessionFromHeaders(req.headers);
 
-    const items =
-      source === "douban" ? await fetchDoubanChart(chart, media, period) : await fetchTmdbChart(chart, media, period);
-    res.json(await annotateChartItems(session, await enrichChartPosters(items)));
+    const result = source === "douban"
+      ? await fetchDoubanChart(chart, media, period, page, year, genre)
+      : await fetchTmdbChart(chart, media, period, { page, year, genre });
+    const items = await annotateChartItems(session, await enrichChartPosters(result.items));
+    res.json({ ...result, items });
   })
 );
 
@@ -374,6 +381,38 @@ app.get(
       ? await getLibrarySeasonNumbers(session.emby, tmdbId, item.title, item.year)
       : new Set<number>();
     res.json(seasons.map((season) => ({ ...season, inLibrary: librarySeasons.has(season.seasonNumber) })));
+  })
+);
+
+app.get(
+  "/api/tmdb/:media/:id/details",
+  asyncRoute(async (req, res) => {
+    const mediaType = scalar(req.params.media, "movie") === "tv" ? "tv" : "movie";
+    const tmdbId = scalar(req.params.id, "");
+    const session = sessionFromAuthHeader(req.headers.authorization)?.emby || sessionFromHeaders(req.headers);
+    if (mediaType === "tv") {
+      const details = await fetchTmdbSeasons(tmdbId);
+      const [item] = await annotateChartItems(session, [details.item]);
+      const librarySeasons = session
+        ? await getLibrarySeasonNumbers(session, tmdbId, details.item.title, details.item.year)
+        : new Set<number>();
+      res.json({
+        item,
+        seasons: details.seasons.map((season) => ({ ...season, inLibrary: librarySeasons.has(season.seasonNumber) }))
+      });
+      return;
+    }
+    const [item] = await annotateChartItems(session, [await fetchTmdbItem(tmdbId, "movie")]);
+    res.json({ item, seasons: [] });
+  })
+);
+
+app.get(
+  "/api/tmdb/tv/:id/season/:seasonNumber",
+  asyncRoute(async (req, res) => {
+    const tmdbId = scalar(req.params.id, "");
+    const seasonNumber = Number(req.params.seasonNumber);
+    res.json(await fetchTmdbSeasonDetails(tmdbId, seasonNumber));
   })
 );
 

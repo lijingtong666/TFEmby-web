@@ -2210,6 +2210,121 @@ h2 {
   cursor: pointer;
 }
 
+.chartToolbar {
+  margin: -8px 0 24px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: var(--surface-soft);
+}
+
+.chartToolbar label {
+  min-width: 150px;
+  display: grid;
+  gap: 6px;
+}
+
+.chartToolbar label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.chartToolbar select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 34px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chartCount {
+  min-width: 0;
+  margin-left: auto;
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.chartCount strong {
+  font-size: 19px;
+}
+
+.chartCount span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pagination,
+.pageSlot {
+  display: flex;
+  align-items: center;
+}
+
+.pagination {
+  flex: none;
+  flex-direction: row;
+  min-height: 44px;
+  margin-top: 30px;
+  padding-right: 0;
+  justify-content: center;
+  gap: 6px;
+  overflow: visible;
+}
+
+.pagination button {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  flex: 0 0 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 750;
+  text-align: center;
+}
+
+.pagination button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--line));
+  color: var(--brand-strong);
+}
+
+.pagination button.active {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #ffffff;
+}
+
+.pagination button.active::after {
+  display: none;
+}
+
+.pagination button:disabled {
+  opacity: 0.42;
+}
+
+.pageSlot {
+  gap: 6px;
+}
+
+.pageSlot > span {
+  width: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
 .chartCard:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--brand) 28%, transparent);
   outline-offset: 3px;
@@ -2369,7 +2484,7 @@ h2 {
 
 .detailFacts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
   gap: 10px;
 }
 
@@ -2420,6 +2535,181 @@ h2 {
 .detailOverview p {
   color: var(--muted);
   line-height: 1.8;
+}
+
+.detailLoading {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detailSeasons {
+  padding: 0 2px 28px;
+}
+
+.detailSectionTitle,
+.detailSeasonHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.detailSectionTitle h2 {
+  margin: 0;
+}
+
+.detailSectionTitle > span,
+.detailSeasonHead span,
+.detailEpisode span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detailSeasonTabs {
+  margin: 14px 0;
+  padding-bottom: 4px;
+  overflow-x: auto;
+  display: flex;
+  gap: 7px;
+  scrollbar-width: thin;
+}
+
+.detailSeasonTabs button {
+  min-width: max-content;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 750;
+}
+
+.detailSeasonTabs button.active {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 11%, var(--surface));
+  color: var(--brand-strong);
+}
+
+.detailSeasonPanel {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  background: var(--surface-soft);
+}
+
+.detailSeasonPanel > img {
+  width: 92px;
+  aspect-ratio: 2 / 3;
+  border-radius: 11px;
+  object-fit: cover;
+}
+
+.detailSeasonPanel.noPoster {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.detailSeasonBody {
+  min-width: 0;
+}
+
+.detailSeasonHead > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.detailSeasonHead strong {
+  overflow-wrap: anywhere;
+  font-size: 16px;
+}
+
+.seasonLibraryState {
+  min-width: max-content;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: color-mix(in srgb, var(--green) 11%, var(--surface));
+  color: var(--green) !important;
+  font-weight: 750;
+}
+
+.detailSeasonBody > p {
+  margin-top: 11px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.detailEpisodeList {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.detailEpisode {
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.detailEpisode:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.detailEpisode > img,
+.episodeStillFallback {
+  width: 116px;
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+  object-fit: cover;
+  background: var(--surface-raised);
+}
+
+.episodeStillFallback {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.detailEpisode > div:last-child {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.detailEpisode strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.detailEpisode p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .detailFooter {
@@ -2475,6 +2765,32 @@ h2 {
 }
 
 @media (max-width: 640px) {
+  .chartToolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chartToolbar label {
+    min-width: 0;
+  }
+
+  .chartCount {
+    grid-column: 1 / -1;
+    margin-left: 0;
+    justify-items: start;
+  }
+
+  .pagination {
+    gap: 4px;
+  }
+
+  .pagination button {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    flex-basis: 36px;
+  }
+
   .detailOverlay {
     padding: 0;
     background: var(--surface);
@@ -2524,6 +2840,33 @@ h2 {
 
   .detailOverview {
     padding-block: 22px;
+  }
+
+  .detailSectionTitle,
+  .detailSeasonHead {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .detailSeasonPanel {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .detailSeasonPanel > img {
+    width: 72px;
+  }
+
+  .detailEpisode {
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .detailEpisode > img,
+  .episodeStillFallback {
+    width: 92px;
   }
 
   .detailFooter {

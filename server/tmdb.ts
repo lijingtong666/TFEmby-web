@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import { externalServiceFetch } from "./proxy.js";
-import type { ChartItem, TvSeason } from "./types.js";
+import type { ChartItem, ChartPage, TvSeason, TvSeasonDetail } from "./types.js";
 
 type TmdbSeason = {
   season_number: number;
@@ -24,10 +24,30 @@ type TmdbMedia = {
   release_date?: string;
   first_air_date?: string;
   seasons?: TmdbSeason[];
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  popularity?: number;
 };
 
 type TmdbResponse = {
   results?: TmdbMedia[];
+  page?: number;
+  total_pages?: number;
+  total_results?: number;
+};
+
+type TmdbEpisode = {
+  episode_number: number;
+  name?: string;
+  overview?: string;
+  air_date?: string;
+  runtime?: number;
+  still_path?: string;
+};
+
+type TmdbSeasonDetails = TmdbSeason & {
+  overview?: string;
+  episodes?: TmdbEpisode[];
 };
 
 type CachedImage = {
@@ -80,6 +100,8 @@ function toChartItem(media: TmdbMedia, chart: string, rank: number): ChartItem {
     overview: media.overview,
     voteAverage: media.vote_average,
     releaseDate: media.release_date || media.first_air_date,
+    totalSeasons: media.number_of_seasons,
+    totalEpisodes: media.number_of_episodes,
     externalIds: {
       tmdb: String(media.id)
     }
@@ -162,6 +184,43 @@ export async function fetchTmdbSeasons(tmdbId: string): Promise<{ item: ChartIte
   };
 }
 
+export async function fetchTmdbSeasonDetails(tmdbId: string, seasonNumber: number): Promise<TvSeasonDetail> {
+  requireTmdb();
+  if (!/^\d+$/.test(tmdbId) || !Number.isInteger(seasonNumber) || seasonNumber <= 0) {
+    const error = new Error("TMDB 季度参数无效。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+  const endpoint = withKey(new URL(`/3/tv/${tmdbId}/season/${seasonNumber}`, "https://api.themoviedb.org"));
+  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  if (!response.ok) {
+    const error = new Error(response.status === 404 ? "TMDB 中未找到该季度。" : "TMDB 单季信息读取失败。");
+    (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
+    throw error;
+  }
+  const season = (await response.json()) as TmdbSeasonDetails;
+  const episodes = (season.episodes || [])
+    .filter((episode) => Number.isInteger(episode.episode_number) && episode.episode_number > 0)
+    .map((episode) => ({
+      episodeNumber: episode.episode_number,
+      name: episode.name || `第 ${episode.episode_number} 集`,
+      overview: episode.overview,
+      airDate: episode.air_date,
+      runtime: episode.runtime,
+      still: image(episode.still_path, "w300")
+    }));
+  return {
+    seasonNumber,
+    name: season.name || `第 ${seasonNumber} 季`,
+    episodeCount: season.episode_count || episodes.length,
+    airDate: season.air_date,
+    poster: image(season.poster_path),
+    overview: season.overview,
+    inLibrary: false,
+    episodes
+  };
+}
+
 export async function findTmdbPoster(item: ChartItem): Promise<string | undefined> {
   if (!config.tmdbApiKey && !config.tmdbBearerToken) return undefined;
 
@@ -179,7 +238,7 @@ export async function findTmdbPoster(item: ChartItem): Promise<string | undefine
   }
 }
 
-function fallback(chart: string): ChartItem[] {
+function fallback(chart: string, page = 1, media = "all", year?: number, genre?: number): ChartPage {
   const titles = [
     ["怒之杀", "movie", "2026", "7.1"],
     ["蜘蛛侠：崭新之日", "movie", "2026", "7.9"],
@@ -191,19 +250,22 @@ function fallback(chart: string): ChartItem[] {
     ["沙丘：预言", "tv", "2024", "7.7"]
   ] as const;
 
-  return titles.map(([title, mediaType, year, score], index) => ({
-    source: "demo",
-    chart,
-    rank: index + 1,
-    title,
-    mediaType,
-    year: Number(year),
-    voteAverage: Number(score),
-    overview: "在管理后台配置 TMDB API Key 或 Bearer Token 后将显示实时榜单。",
-    externalIds: {
-      tmdb: `demo-${index + 1}`
-    }
-  }));
+  const items: ChartItem[] = titles
+    .filter(([, mediaType, itemYear]) => (media === "all" || mediaType === media) && (!year || Number(itemYear) === year) && !genre)
+    .map(([title, mediaType, itemYear, score], index) => ({
+      source: "demo",
+      chart,
+      rank: (page - 1) * 20 + index + 1,
+      title,
+      mediaType,
+      year: Number(itemYear),
+      voteAverage: Number(score),
+      overview: "在管理后台配置 TMDB API Key 或 Bearer Token 后将显示实时榜单。",
+      externalIds: {
+        tmdb: `demo-${index + 1}`
+      }
+    }));
+  return { items: page === 1 ? items : [], page, totalPages: 1, totalResults: items.length };
 }
 
 function lastMonth() {
@@ -212,8 +274,62 @@ function lastMonth() {
   return date.toISOString().slice(0, 10);
 }
 
-export async function fetchTmdbChart(chart: string, media = "all", period = "week"): Promise<ChartItem[]> {
-  if (!config.tmdbApiKey && !config.tmdbBearerToken) return fallback(chart);
+type ChartFilters = {
+  page?: number;
+  year?: number;
+  genre?: number;
+};
+
+function chartSort(chart: string) {
+  return chart.includes("top-rated") ? "vote_average.desc" : "popularity.desc";
+}
+
+async function fetchDiscoverPage(mediaType: "movie" | "tv", chart: string, filters: Required<Pick<ChartFilters, "page">> & ChartFilters) {
+  const endpoint = withKey(new URL(`/3/discover/${mediaType}`, "https://api.themoviedb.org"));
+  endpoint.searchParams.set("page", String(filters.page));
+  endpoint.searchParams.set("sort_by", chartSort(chart));
+  endpoint.searchParams.set("include_adult", "false");
+  if (chart.includes("top-rated")) endpoint.searchParams.set("vote_count.gte", "200");
+  if (filters.genre) endpoint.searchParams.set("with_genres", String(filters.genre));
+  if (filters.year) {
+    endpoint.searchParams.set(mediaType === "tv" ? "first_air_date_year" : "primary_release_year", String(filters.year));
+  } else if (chart === "monthly") {
+    endpoint.searchParams.set(mediaType === "tv" ? "first_air_date.gte" : "primary_release_date.gte", lastMonth());
+  }
+  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  if (!response.ok) throw new Error(`TMDB 榜单读取失败：HTTP ${response.status}`);
+  const data = (await response.json()) as TmdbResponse;
+  const results = (data.results || []).map((item) => ({ ...item, media_type: mediaType }));
+  return { data, results };
+}
+
+export async function fetchTmdbChart(chart: string, media = "all", period = "week", filters: ChartFilters = {}): Promise<ChartPage> {
+  const page = Math.min(30, Math.max(1, filters.page || 1));
+  if (!config.tmdbApiKey && !config.tmdbBearerToken) return fallback(chart, page, media, filters.year, filters.genre);
+
+  const normalizedFilters = { ...filters, page };
+  if (filters.year || filters.genre) {
+    try {
+      const mediaTypes: Array<"movie" | "tv"> = media === "movie" || media === "tv" ? [media] : ["movie", "tv"];
+      const responses = await Promise.all(mediaTypes.map((mediaType) => fetchDiscoverPage(mediaType, chart, normalizedFilters)));
+      const combined = responses
+        .flatMap((entry) => entry.results)
+        .sort((left, right) => chart.includes("top-rated")
+          ? (right.vote_average || 0) - (left.vote_average || 0)
+          : (right.popularity || 0) - (left.popularity || 0))
+        .slice(0, 20);
+      const totalPages = Math.min(30, Math.max(...responses.map((entry) => entry.data.total_pages || 1)));
+      const totalResults = responses.reduce((total, entry) => total + (entry.data.total_results || entry.results.length), 0);
+      return {
+        items: combined.map((item, index) => toChartItem(item, chart, (page - 1) * 20 + index + 1)),
+        page,
+        totalPages,
+        totalResults
+      };
+    } catch {
+      return fallback(chart, page, media, filters.year, filters.genre);
+    }
+  }
 
   let path = "";
   if (chart === "trending" || chart === "global") {
@@ -235,15 +351,22 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
   }
 
   const endpoint = withKey(new URL(`/3${path}`, "https://api.themoviedb.org"));
+  endpoint.searchParams.set("page", String(page));
   if (chart === "monthly") {
     endpoint.searchParams.set("sort_by", "popularity.desc");
     if (media === "tv") endpoint.searchParams.set("first_air_date.gte", lastMonth());
     else endpoint.searchParams.set("primary_release_date.gte", lastMonth());
   }
   const response = await externalServiceFetch(endpoint, { headers: headers() });
-  if (!response.ok) return fallback(chart);
+  if (!response.ok) return fallback(chart, page, media);
   const data = (await response.json()) as TmdbResponse;
-  return (data.results || []).slice(0, 24).map((item, index) => toChartItem(item, chart, index + 1));
+  const items = (data.results || []).slice(0, 20).map((item, index) => toChartItem(item, chart, (page - 1) * 20 + index + 1));
+  return {
+    items,
+    page,
+    totalPages: Math.min(30, Math.max(1, data.total_pages || 1)),
+    totalResults: data.total_results || items.length
+  };
 }
 
 export async function fetchTmdbImage(imagePath: string, size = "w500") {

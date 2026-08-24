@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import type { ChartItem } from "./types.js";
+import type { ChartItem, ChartPage } from "./types.js";
 
 type DoubanSearchItem = {
   id?: string | number;
@@ -42,13 +42,14 @@ function demoRows(chart: string) {
   return weekly;
 }
 
-function fallback(chart: string, media = "all"): ChartItem[] {
-  return demoRows(chart)
+function fallback(chart: string, media = "all", page = 1, year?: number): ChartPage {
+  const items: ChartItem[] = demoRows(chart)
     .filter(([, type]) => media === "all" || type === media)
+    .filter(([, , itemYear]) => !year || Number(itemYear) === year)
     .map(([title, mediaType, year, score, id], index) => ({
       source: "demo",
       chart,
-      rank: index + 1,
+      rank: (page - 1) * 20 + index + 1,
       title,
       mediaType,
       year: Number(year),
@@ -58,6 +59,7 @@ function fallback(chart: string, media = "all"): ChartItem[] {
         douban: id
       }
     }));
+  return { items: page === 1 ? items : [], page, totalPages: 1, totalResults: items.length };
 }
 
 function normalizeImageUrl(value?: string) {
@@ -179,22 +181,26 @@ export async function findDoubanPoster(item: ChartItem): Promise<string | undefi
   return poster;
 }
 
-export async function fetchDoubanChart(chart: string, media = "all", period = "week"): Promise<ChartItem[]> {
-  if (!config.doubanApiBase) return fallback(chart, media);
+export async function fetchDoubanChart(chart: string, media = "all", period = "week", page = 1, year?: number, genre?: number): Promise<ChartPage> {
+  const currentPage = Math.min(30, Math.max(1, page));
+  if (!config.doubanApiBase) return fallback(chart, media, currentPage, year);
 
   const endpoint = new URL(config.doubanApiBase.replace(/\/+$/, "") + "/charts");
   endpoint.searchParams.set("chart", chart);
   endpoint.searchParams.set("media", media);
   endpoint.searchParams.set("period", period);
+  endpoint.searchParams.set("page", String(currentPage));
+  if (year) endpoint.searchParams.set("year", String(year));
+  if (genre) endpoint.searchParams.set("genre", String(genre));
 
   try {
     const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
-    if (!response.ok) return fallback(chart, media);
-    const data = (await response.json()) as { items?: Partial<ChartItem>[] };
-    return (data.items || []).slice(0, 50).map((item, index) => ({
+    if (!response.ok) return fallback(chart, media, currentPage, year);
+    const data = (await response.json()) as { items?: Partial<ChartItem>[]; page?: number; totalPages?: number; total_pages?: number; totalResults?: number; total_results?: number };
+    const items: ChartItem[] = (data.items || []).slice(0, 20).map((item, index) => ({
       source: "douban",
       chart,
-      rank: index + 1,
+      rank: (currentPage - 1) * 20 + index + 1,
       title: item.title || "未命名",
       originalTitle: item.originalTitle,
       mediaType: item.mediaType === "tv" ? "tv" : "movie",
@@ -210,7 +216,13 @@ export async function fetchDoubanChart(chart: string, media = "all", period = "w
         imdb: item.externalIds?.imdb
       }
     }));
+    return {
+      items,
+      page: currentPage,
+      totalPages: Math.min(30, Math.max(1, data.totalPages || data.total_pages || 1)),
+      totalResults: data.totalResults || data.total_results || items.length
+    };
   } catch {
-    return fallback(chart, media);
+    return fallback(chart, media, currentPage, year);
   }
 }

@@ -1,4 +1,4 @@
-import type { AdminSettings, AppConfig, ChartItem, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TvSeason, UserSession } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession } from "./types";
 
 const sessionKey = "tfemby-web-session";
 
@@ -81,8 +81,16 @@ export const api = {
   resume: (session: EmbySession) => request<MediaItem[]>("/api/emby/resume", session),
   history: (session: EmbySession) => request<MediaItem[]>("/api/emby/history", session),
   latest: (session: EmbySession) => request<MediaItem[]>("/api/emby/latest", session),
-  chart: (source: string, chart: string, media: string, period: string, session?: EmbySession | null) =>
-    request<ChartItem[]>(`/api/charts/${source}/${chart}?media=${media}&period=${period}`, session),
+  chart: (source: string, chart: string, media: string, period: string, page: number, year: string, genre: string, session?: EmbySession | null) => {
+    const params = new URLSearchParams({ media, period, page: String(page) });
+    if (year) params.set("year", year);
+    if (genre) params.set("genre", genre);
+    return request<ChartPage>(`/api/charts/${source}/${chart}?${params}`, session);
+  },
+  tmdbDetails: (tmdbId: string, mediaType: "movie" | "tv", session?: EmbySession | null) =>
+    request<TmdbTitleDetails>(`/api/tmdb/${mediaType}/${encodeURIComponent(tmdbId)}/details`, session),
+  tmdbSeason: (tmdbId: string, seasonNumber: number, session?: EmbySession | null) =>
+    request<TvSeasonDetail>(`/api/tmdb/tv/${encodeURIComponent(tmdbId)}/season/${seasonNumber}`, session),
   searchTmdb: (session: UserSession, query: string) =>
     request<ChartItem[]>(`/api/tmdb/search?q=${encodeURIComponent(query)}`, session),
   tvSeasons: (session: UserSession, tmdbId: string) =>
