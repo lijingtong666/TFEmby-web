@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppSession } from "./auth.js";
-import { config } from "./config.js";
+import { config, getTmdbApiBases, getTmdbImageBases, tmdbApiUrl, tmdbImageUrl } from "./config.js";
 import { externalServiceFetch, testProxyLatency } from "./proxy.js";
 import { createMediaRequest } from "./requests.js";
 import { fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
@@ -254,7 +254,7 @@ function requireValues(settings: TgBotConfig, keys: Array<keyof TgBotConfig>) {
 }
 
 async function fetchJson(url: string, init?: RequestInit) {
-  const response = await externalServiceFetch(url, { ...init, signal: AbortSignal.timeout(30000) });
+  const response = await externalServiceFetch(url, { ...init, signal: init?.signal || AbortSignal.timeout(30000) });
   const data = await response.json().catch(() => ({})) as Record<string, any>;
   if (!response.ok || data.ok === false) throw new Error(String(data.error || data.description || `HTTP ${response.status}`));
   return data;
@@ -424,13 +424,21 @@ async function tmdbGet(settings: TgBotConfig, endpoint: string, params: Record<s
   const apiKey = settings.tmdbApiKey || config.tmdbApiKey;
   const bearer = config.tmdbBearerToken;
   if (!apiKey && !bearer) throw new Error("缺少配置：TMDB API Key 或 Bearer Token");
-  const url = new URL(`https://api.themoviedb.org/3/${endpoint.replace(/^\/+/, "")}`);
-  url.searchParams.set("language", settings.tmdbLanguage || "zh-CN");
-  if (apiKey) url.searchParams.set("api_key", apiKey);
-  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   const headers: Record<string, string> = { Accept: "application/json" };
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
-  return fetchJson(url.toString(), { headers });
+  let lastError: Error | null = null;
+  for (const base of getTmdbApiBases()) {
+    const url = tmdbApiUrl(base, endpoint);
+    url.searchParams.set("language", settings.tmdbLanguage || "zh-CN");
+    if (apiKey) url.searchParams.set("api_key", apiKey);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    try {
+      return await fetchJson(url.toString(), { headers, signal: AbortSignal.timeout(12000) });
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+  throw new Error(`TMDB 服务地址均连接失败${lastError?.message ? `：${lastError.message}` : "。"}`);
 }
 
 async function buildMetadata(settings: TgBotConfig, item: EmbyItem): Promise<Metadata> {
@@ -629,7 +637,7 @@ export function formatLibraryMessage(settings: TgBotConfig, item: EmbyItem, meta
 
 function posterSource(settings: TgBotConfig, item: EmbyItem, metadata: Metadata) {
   if (!settings.enableCovers) return { url: "", source: "none" as const };
-  if (metadata.tmdb.poster_path) return { url: `https://image.tmdb.org/t/p/w780${metadata.tmdb.poster_path}`, source: "tmdb" as const };
+  if (metadata.tmdb.poster_path) return { url: tmdbImageUrl(getTmdbImageBases()[0], "w780", metadata.tmdb.poster_path), source: "tmdb" as const };
   if (metadata.douban.img) return { url: String(metadata.douban.img), source: "remote" as const };
   if (item.ImageTags?.Primary && item.Id) return { url: `${embyBase(settings)}/Items/${encodeURIComponent(item.Id)}/Images/Primary?maxHeight=1200&quality=90`, source: "emby" as const };
   return { url: "", source: "none" as const };

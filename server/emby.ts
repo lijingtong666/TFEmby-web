@@ -60,6 +60,7 @@ async function embyFetch<T>(session: EmbySession, path: string, init?: RequestIn
   const url = `${serverUrl}${path}${separator}api_key=${encodeURIComponent(session.accessToken)}`;
   const response = await fetch(url, {
     ...init,
+    signal: init?.signal || AbortSignal.timeout(15000),
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -103,7 +104,13 @@ export function sessionFromHeaders(headers: IncomingHttpHeaders): EmbySession | 
   const accessToken = headerValue(headers, "x-emby-token");
   const userId = headerValue(headers, "x-emby-user-id");
   const serverUrl = headerValue(headers, "x-emby-server-url") || config.embyServerUrl;
-  const userName = headerValue(headers, "x-emby-user-name") || "Emby";
+  const encodedUserName = headerValue(headers, "x-emby-user-name");
+  let userName = encodedUserName || "Emby";
+  try {
+    userName = encodedUserName ? decodeURIComponent(encodedUserName) : "Emby";
+  } catch {
+    userName = encodedUserName || "Emby";
+  }
   if (!accessToken || !userId || !serverUrl) return null;
   return {
     accessToken,
@@ -187,16 +194,38 @@ const fields = [
 ].join(",");
 
 export async function searchLibrary(session: EmbySession, query: string, limit = 48) {
+  const searchTerm = query.trim();
+  if (!searchTerm) return [];
   const params = new URLSearchParams({
     UserId: session.userId,
-    SearchTerm: query,
+    SearchTerm: searchTerm,
     Recursive: "true",
     IncludeItemTypes: "Movie,Series,Episode",
     Fields: fields,
     Limit: String(limit)
   });
-  const data = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${params.toString()}`);
-  return (data.Items || []).map((item) => toMediaItem(session, item));
+  try {
+    const data = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${params.toString()}`);
+    if (data.Items?.length) return data.Items.map((item) => toMediaItem(session, item));
+  } catch (error) {
+    const status = (error as Error & { status?: number }).status;
+    if (status !== 400 && status !== 404) throw error;
+  }
+
+  const fallbackParams = new URLSearchParams({
+    UserId: session.userId,
+    Recursive: "true",
+    IncludeItemTypes: "Movie,Series,Episode",
+    Fields: fields,
+    Limit: "5000"
+  });
+  const fallback = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${fallbackParams.toString()}`);
+  const normalizedQuery = normalizeTitle(searchTerm);
+  if (!normalizedQuery) return [];
+  return (fallback.Items || [])
+    .filter((item) => [item.Name, item.OriginalTitle, item.SeriesName].some((value) => normalizeTitle(value).includes(normalizedQuery)))
+    .slice(0, limit)
+    .map((item) => toMediaItem(session, item));
 }
 
 export async function getResumeItems(session: EmbySession, limit = 30) {

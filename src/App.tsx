@@ -517,7 +517,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.6"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.7"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -681,14 +681,18 @@ function SearchView({ session }: { session: EmbySession | null }) {
   const [results, setResults] = useState<MediaItem[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [searched, setSearched] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!session || !query.trim()) return;
     setBusy(true);
+    setSearched(false);
+    setResults([]);
     setError("");
     try {
       setResults(await api.search(session, query.trim()));
+      setSearched(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -706,11 +710,12 @@ function SearchView({ session }: { session: EmbySession | null }) {
       </div>
       <form className="searchBar" onSubmit={submit}>
         <Search size={20} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入片名" disabled={!session} />
+        <input value={query} onChange={(event) => { setQuery(event.target.value); setSearched(false); }} placeholder="输入电影、剧集或单集名称" disabled={!session || busy} />
         <button disabled={!session || busy}>{busy ? "搜索中" : "搜索"}</button>
       </form>
       {error ? <div className="notice">{error}</div> : null}
       {!session ? <div className="notice">请先登录 Emby。</div> : null}
+      {session && searched && !results.length && !error ? <div className="notice">片库中没有找到“{query.trim()}”。</div> : null}
       <div className="rows">{results.map((item) => <MediaRow key={item.id} item={item} />)}</div>
     </section>
   );
@@ -999,6 +1004,37 @@ function SettingField({ label, value, onChange, placeholder, type = "text", min,
   );
 }
 
+function EndpointListField({ label, value, onChange, presets, placeholder }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  presets: Array<{ label: string; value: string }>;
+  placeholder: string;
+}) {
+  const values = value.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+  const toggle = (endpoint: string) => {
+    const next = values.includes(endpoint) ? values.filter((item) => item !== endpoint) : [...values, endpoint];
+    onChange(Array.from(new Set(next)).join("\n"));
+  };
+  return (
+    <div className="settingsEndpointField">
+      <span>{label}</span>
+      <div className="endpointPresets">
+        {presets.map((preset) => {
+          const active = values.includes(preset.value);
+          return (
+            <button type="button" className={active ? "active" : ""} aria-pressed={active} key={preset.value} onClick={() => toggle(preset.value)}>
+              {active ? <CheckCircle2 size={15} /> : <Link2 size={15} />}{preset.label}
+            </button>
+          );
+        })}
+      </div>
+      <textarea rows={2} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <small>可选择多个内置地址，也可按每行一个地址填写自定义服务。</small>
+    </div>
+  );
+}
+
 function SecretSettingField({ label, value, onChange, placeholder }: {
   label: string;
   value: string;
@@ -1181,6 +1217,23 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       <div className="settingsGroup">
         <div className="settingsGroupHead"><h3>榜单与元数据</h3><span>TMDB 榜单、搜索和豆瓣海报补全</span></div>
         <div className="settingsGrid">
+          <EndpointListField
+            label="TMDB API 服务地址"
+            value={draft.web.tmdbApiBases}
+            onChange={(value) => updateWeb("tmdbApiBases", value)}
+            presets={[
+              { label: "api.themoviedb.org", value: "https://api.themoviedb.org" },
+              { label: "api.tmdb.org", value: "https://api.tmdb.org" }
+            ]}
+            placeholder="https://api.themoviedb.org"
+          />
+          <EndpointListField
+            label="TMDB 图片服务地址"
+            value={draft.web.tmdbImageBases}
+            onChange={(value) => updateWeb("tmdbImageBases", value)}
+            presets={[{ label: "image.tmdb.org", value: "https://image.tmdb.org" }]}
+            placeholder="https://image.tmdb.org"
+          />
           <SecretSettingField label="TMDB API Key" value={draft.web.tmdbApiKey} onChange={(value) => updateWeb("tmdbApiKey", value)} />
           <SecretSettingField label="TMDB Bearer Token" value={draft.web.tmdbBearerToken} onChange={(value) => updateWeb("tmdbBearerToken", value)} />
           <SettingField label="TMDB 语言" value={bot.tmdbLanguage} onChange={(value) => updateBot("tmdbLanguage", value)} placeholder="zh-CN" />

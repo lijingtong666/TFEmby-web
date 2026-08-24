@@ -11,6 +11,8 @@ export type WebSettings = {
   embyServerUrl: string;
   tmdbApiKey: string;
   tmdbBearerToken: string;
+  tmdbApiBases: string;
+  tmdbImageBases: string;
   doubanApiBase: string;
   telegramBotToken: string;
   telegramChatId: string;
@@ -33,6 +35,37 @@ export function cleanBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
 
+const defaultTmdbApiBases = "https://api.themoviedb.org";
+const defaultTmdbImageBases = "https://image.tmdb.org";
+
+function splitUrlList(value: string) {
+  return value.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function normalizeUrlList(value: unknown, label: string, fallback: string) {
+  const entries = splitUrlList(String(value ?? fallback));
+  const normalized = entries.map((entry) => normalizeUrl(/^https?:\/\//i.test(entry) ? entry : `https://${entry}`, label));
+  return Array.from(new Set(normalized.length ? normalized : [fallback])).join("\n");
+}
+
+export function getTmdbApiBases() {
+  return splitUrlList(config.tmdbApiBases || defaultTmdbApiBases);
+}
+
+export function getTmdbImageBases() {
+  return splitUrlList(config.tmdbImageBases || defaultTmdbImageBases);
+}
+
+export function tmdbApiUrl(base: string, endpoint: string) {
+  const root = cleanBaseUrl(base);
+  const apiRoot = /\/3$/i.test(root) ? root : `${root}/3`;
+  return new URL(`${apiRoot}/${endpoint.replace(/^\/+/, "")}`);
+}
+
+export function tmdbImageUrl(base: string, size: string, imagePath: string) {
+  return `${cleanBaseUrl(base)}/t/p/${size}${imagePath}`;
+}
+
 export const config: RuntimeConfig = {
   port: Number(process.env.PORT || 8787),
   appName: process.env.PUBLIC_APP_NAME || "TFEmby Web",
@@ -40,6 +73,8 @@ export const config: RuntimeConfig = {
   embyServerUrl: cleanBaseUrl(process.env.EMBY_SERVER_URL || ""),
   tmdbApiKey: process.env.TMDB_API_KEY || "",
   tmdbBearerToken: process.env.TMDB_BEARER_TOKEN || "",
+  tmdbApiBases: normalizeUrlList(process.env.TMDB_API_BASES || process.env.TMDB_API_BASE, "TMDB API 地址", defaultTmdbApiBases),
+  tmdbImageBases: normalizeUrlList(process.env.TMDB_IMAGE_BASES || process.env.TMDB_IMAGE_BASE, "TMDB 图片地址", defaultTmdbImageBases),
   doubanApiBase: cleanBaseUrl(process.env.DOUBAN_API_BASE || ""),
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || process.env.TG_BOT_TOKEN || "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID || process.env.TG_CHAT_ID || "",
@@ -49,7 +84,7 @@ export const config: RuntimeConfig = {
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.6.6",
+  version: process.env.APP_VERSION || "0.6.7",
   timeZone: process.env.TZ || defaultTimeZone
 };
 
@@ -91,6 +126,8 @@ function normalizedSettings(input: Partial<WebSettings>): WebSettings {
     embyServerUrl: normalizeUrl(input.embyServerUrl, "Emby 地址"),
     tmdbApiKey: String(input.tmdbApiKey ?? config.tmdbApiKey).trim(),
     tmdbBearerToken: String(input.tmdbBearerToken ?? config.tmdbBearerToken).trim(),
+    tmdbApiBases: normalizeUrlList(input.tmdbApiBases, "TMDB API 地址", config.tmdbApiBases || defaultTmdbApiBases),
+    tmdbImageBases: normalizeUrlList(input.tmdbImageBases, "TMDB 图片地址", config.tmdbImageBases || defaultTmdbImageBases),
     doubanApiBase: normalizeUrl(input.doubanApiBase, "豆瓣 API 地址"),
     telegramBotToken: String(input.telegramBotToken ?? config.telegramBotToken).trim(),
     telegramChatId: String(input.telegramChatId ?? config.telegramChatId).trim(),
@@ -110,6 +147,8 @@ export function getWebSettings(): WebSettings {
     embyServerUrl: config.embyServerUrl,
     tmdbApiKey: config.tmdbApiKey,
     tmdbBearerToken: config.tmdbBearerToken,
+    tmdbApiBases: config.tmdbApiBases,
+    tmdbImageBases: config.tmdbImageBases,
     doubanApiBase: config.doubanApiBase,
     telegramBotToken: config.telegramBotToken,
     telegramChatId: config.telegramChatId,

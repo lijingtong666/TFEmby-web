@@ -1,4 +1,4 @@
-import { config } from "./config.js";
+import { config, getTmdbApiBases, getTmdbImageBases, tmdbApiUrl, tmdbImageUrl } from "./config.js";
 import { externalServiceFetch } from "./proxy.js";
 import type { ChartItem, ChartPage, TvSeason, TvSeasonDetail } from "./types.js";
 
@@ -80,6 +80,26 @@ function withKey(url: URL) {
   return url;
 }
 
+async function tmdbRequest(endpointPath: string, configure?: (url: URL) => void, timeoutMs = 12000) {
+  let lastResponse: Response | null = null;
+  let lastError: Error | null = null;
+  for (const base of getTmdbApiBases()) {
+    const endpoint = withKey(tmdbApiUrl(base, endpointPath));
+    configure?.(endpoint);
+    try {
+      const response = await externalServiceFetch(endpoint, { headers: headers(), signal: AbortSignal.timeout(timeoutMs) });
+      if (response.ok) return response;
+      lastResponse = response;
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+  if (lastResponse) return lastResponse;
+  const error = new Error(`TMDB 服务地址均连接失败${lastError?.message ? `：${lastError.message}` : "。"}`);
+  (error as Error & { status?: number }).status = 502;
+  throw error;
+}
+
 function yearOf(media: TmdbMedia) {
   const date = media.release_date || media.first_air_date || "";
   return date ? Number(date.slice(0, 4)) : undefined;
@@ -118,10 +138,10 @@ function requireTmdb() {
 
 export async function searchTmdb(query: string): Promise<ChartItem[]> {
   requireTmdb();
-  const endpoint = withKey(new URL("/3/search/multi", "https://api.themoviedb.org"));
-  endpoint.searchParams.set("query", query.trim());
-  endpoint.searchParams.set("include_adult", "false");
-  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  const response = await tmdbRequest("search/multi", (endpoint) => {
+    endpoint.searchParams.set("query", query.trim());
+    endpoint.searchParams.set("include_adult", "false");
+  });
   if (!response.ok) {
     const error = new Error("TMDB 搜索失败，请稍后重试。");
     (error as Error & { status?: number }).status = 502;
@@ -141,8 +161,7 @@ export async function fetchTmdbItem(tmdbId: string, mediaType: "movie" | "tv"): 
     (error as Error & { status?: number }).status = 400;
     throw error;
   }
-  const endpoint = withKey(new URL(`/3/${mediaType}/${tmdbId}`, "https://api.themoviedb.org"));
-  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  const response = await tmdbRequest(`${mediaType}/${tmdbId}`);
   if (!response.ok) {
     const error = new Error(response.status === 404 ? "TMDB 中未找到该条目。" : "TMDB 条目读取失败。");
     (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
@@ -160,8 +179,7 @@ export async function fetchTmdbSeasons(tmdbId: string): Promise<{ item: ChartIte
     (error as Error & { status?: number }).status = 400;
     throw error;
   }
-  const endpoint = withKey(new URL(`/3/tv/${tmdbId}`, "https://api.themoviedb.org"));
-  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  const response = await tmdbRequest(`tv/${tmdbId}`);
   if (!response.ok) {
     const error = new Error(response.status === 404 ? "TMDB 中未找到该剧集。" : "TMDB 季度信息读取失败。");
     (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
@@ -191,8 +209,7 @@ export async function fetchTmdbSeasonDetails(tmdbId: string, seasonNumber: numbe
     (error as Error & { status?: number }).status = 400;
     throw error;
   }
-  const endpoint = withKey(new URL(`/3/tv/${tmdbId}/season/${seasonNumber}`, "https://api.themoviedb.org"));
-  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  const response = await tmdbRequest(`tv/${tmdbId}/season/${seasonNumber}`);
   if (!response.ok) {
     const error = new Error(response.status === 404 ? "TMDB 中未找到该季度。" : "TMDB 单季信息读取失败。");
     (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
@@ -225,10 +242,10 @@ export async function findTmdbPoster(item: ChartItem): Promise<string | undefine
   if (!config.tmdbApiKey && !config.tmdbBearerToken) return undefined;
 
   try {
-    const endpoint = withKey(new URL(`/3/search/${item.mediaType}`, "https://api.themoviedb.org"));
-    endpoint.searchParams.set("query", item.title);
-    if (item.year) endpoint.searchParams.set(item.mediaType === "tv" ? "first_air_date_year" : "year", String(item.year));
-    const response = await externalServiceFetch(endpoint, { headers: headers(), signal: AbortSignal.timeout(5000) });
+    const response = await tmdbRequest(`search/${item.mediaType}`, (endpoint) => {
+      endpoint.searchParams.set("query", item.title);
+      if (item.year) endpoint.searchParams.set(item.mediaType === "tv" ? "first_air_date_year" : "year", String(item.year));
+    }, 5000);
     if (!response.ok) return undefined;
     const data = (await response.json()) as TmdbResponse;
     const match = (data.results || []).find((media) => media.poster_path);
@@ -285,18 +302,18 @@ function chartSort(chart: string) {
 }
 
 async function fetchDiscoverPage(mediaType: "movie" | "tv", chart: string, filters: Required<Pick<ChartFilters, "page">> & ChartFilters) {
-  const endpoint = withKey(new URL(`/3/discover/${mediaType}`, "https://api.themoviedb.org"));
-  endpoint.searchParams.set("page", String(filters.page));
-  endpoint.searchParams.set("sort_by", chartSort(chart));
-  endpoint.searchParams.set("include_adult", "false");
-  if (chart.includes("top-rated")) endpoint.searchParams.set("vote_count.gte", "200");
-  if (filters.genre) endpoint.searchParams.set("with_genres", String(filters.genre));
-  if (filters.year) {
-    endpoint.searchParams.set(mediaType === "tv" ? "first_air_date_year" : "primary_release_year", String(filters.year));
-  } else if (chart === "monthly") {
-    endpoint.searchParams.set(mediaType === "tv" ? "first_air_date.gte" : "primary_release_date.gte", lastMonth());
-  }
-  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  const response = await tmdbRequest(`discover/${mediaType}`, (endpoint) => {
+    endpoint.searchParams.set("page", String(filters.page));
+    endpoint.searchParams.set("sort_by", chartSort(chart));
+    endpoint.searchParams.set("include_adult", "false");
+    if (chart.includes("top-rated")) endpoint.searchParams.set("vote_count.gte", "200");
+    if (filters.genre) endpoint.searchParams.set("with_genres", String(filters.genre));
+    if (filters.year) {
+      endpoint.searchParams.set(mediaType === "tv" ? "first_air_date_year" : "primary_release_year", String(filters.year));
+    } else if (chart === "monthly") {
+      endpoint.searchParams.set(mediaType === "tv" ? "first_air_date.gte" : "primary_release_date.gte", lastMonth());
+    }
+  });
   if (!response.ok) throw new Error(`TMDB 榜单读取失败：HTTP ${response.status}`);
   const data = (await response.json()) as TmdbResponse;
   const results = (data.results || []).map((item) => ({ ...item, media_type: mediaType }));
@@ -350,14 +367,14 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
     path = "/trending/all/week";
   }
 
-  const endpoint = withKey(new URL(`/3${path}`, "https://api.themoviedb.org"));
-  endpoint.searchParams.set("page", String(page));
-  if (chart === "monthly") {
-    endpoint.searchParams.set("sort_by", "popularity.desc");
-    if (media === "tv") endpoint.searchParams.set("first_air_date.gte", lastMonth());
-    else endpoint.searchParams.set("primary_release_date.gte", lastMonth());
-  }
-  const response = await externalServiceFetch(endpoint, { headers: headers() });
+  const response = await tmdbRequest(path, (endpoint) => {
+    endpoint.searchParams.set("page", String(page));
+    if (chart === "monthly") {
+      endpoint.searchParams.set("sort_by", "popularity.desc");
+      if (media === "tv") endpoint.searchParams.set("first_air_date.gte", lastMonth());
+      else endpoint.searchParams.set("primary_release_date.gte", lastMonth());
+    }
+  });
   if (!response.ok) return fallback(chart, page, media);
   const data = (await response.json()) as TmdbResponse;
   const items = (data.results || []).slice(0, 20).map((item, index) => toChartItem(item, chart, (page - 1) * 20 + index + 1));
@@ -387,7 +404,7 @@ export async function fetchTmdbImage(imagePath: string, size = "w500") {
 
   let loading = imageLoads.get(cacheKey);
   if (!loading) {
-    loading = loadTmdbImage(`https://image.tmdb.org/t/p/${chosenSize}${imagePath}`);
+    loading = loadTmdbImage(getTmdbImageBases().map((base) => tmdbImageUrl(base, chosenSize, imagePath)));
     imageLoads.set(cacheKey, loading);
   }
   try {
@@ -418,19 +435,31 @@ async function imageCandidate(url: string, proxied: boolean, controller: AbortCo
   }
 }
 
-async function loadTmdbImage(url: string): Promise<CachedImage> {
-  const directController = new AbortController();
-  const proxyController = new AbortController();
-  const candidates: Array<Promise<{ value: CachedImage; source: "direct" | "proxy" }>> = [
-    imageCandidate(url, false, directController).then((value) => ({ value, source: "direct" as const }))
-  ];
-  if (config.proxyEnabled && config.proxyUrl) {
-    candidates.push(imageCandidate(url, true, proxyController).then((value) => ({ value, source: "proxy" as const })));
+async function loadTmdbImage(urls: string[]): Promise<CachedImage> {
+  const candidates: Array<{ key: string; controller: AbortController; promise: Promise<{ value: CachedImage; key: string }> }> = [];
+  for (const [index, url] of urls.entries()) {
+    const directController = new AbortController();
+    const directKey = `${index}:direct`;
+    candidates.push({
+      key: directKey,
+      controller: directController,
+      promise: imageCandidate(url, false, directController).then((value) => ({ value, key: directKey }))
+    });
+    if (config.proxyEnabled && config.proxyUrl) {
+      const proxyController = new AbortController();
+      const proxyKey = `${index}:proxy`;
+      candidates.push({
+        key: proxyKey,
+        controller: proxyController,
+        promise: imageCandidate(url, true, proxyController).then((value) => ({ value, key: proxyKey }))
+      });
+    }
   }
   try {
-    const winner = await Promise.any(candidates);
-    if (winner.source === "direct") proxyController.abort();
-    else directController.abort();
+    const winner = await Promise.any(candidates.map((candidate) => candidate.promise));
+    for (const candidate of candidates) {
+      if (candidate.key !== winner.key) candidate.controller.abort();
+    }
     return winner.value;
   } catch {
     const error = new Error("TMDB 图片通过直连和代理均读取失败。");

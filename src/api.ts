@@ -41,7 +41,7 @@ async function request<T>(path: string, session?: UserSession | EmbySession | nu
         ? {
             "x-emby-token": embySession.accessToken,
             "x-emby-user-id": embySession.userId,
-            "x-emby-user-name": embySession.userName,
+            "x-emby-user-name": encodeURIComponent(embySession.userName),
             "x-emby-server-url": embySession.serverUrl
           }
         : {}),

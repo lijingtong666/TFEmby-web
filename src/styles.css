@@ -1701,6 +1701,71 @@ h2 {
   gap: 8px;
 }
 
+.settingsEndpointField {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.settingsEndpointField > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.endpointPresets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.endpointPresets button {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.endpointPresets button.active {
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
+  color: var(--brand-strong);
+}
+
+.settingsEndpointField textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 74px;
+  resize: vertical;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settingsEndpointField textarea:focus {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 8%, transparent);
+  outline: none;
+}
+
+.settingsEndpointField small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .settingsField > span,
 .settingsChecks > span {
   color: var(--muted);

@@ -122,6 +122,8 @@ export type WebSettings = {
   embyServerUrl: string;
   tmdbApiKey: string;
   tmdbBearerToken: string;
+  tmdbApiBases: string;
+  tmdbImageBases: string;
   doubanApiBase: string;
   telegramBotToken: string;
   telegramChatId: string;
