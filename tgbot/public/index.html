@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TG + TMDB + Emby 通知机器人</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar">
+        <div class="brand-group">
+          <div class="app-mark">TG</div>
+          <div>
+            <h1>TG + TMDB + Emby 通知机器人</h1>
+            <p id="subtitle">Emby Webhook · TMDB / 豆瓣补全 · Telegram 通知</p>
+          </div>
+        </div>
+        <div class="top-actions">
+          <div class="status-pill" id="runStatus">未运行</div>
+          <div class="version-pill" id="appVersion">v-</div>
+        </div>
+      </section>
+
+      <section class="quick-strip">
+        <div class="quick-card">
+          <span>Webhook</span>
+          <strong id="quickWebhook">-</strong>
+        </div>
+        <div class="quick-card">
+          <span>已记录</span>
+          <strong id="quickSeen">0</strong>
+        </div>
+        <div class="quick-card wide">
+          <span>最近摘要</span>
+          <strong id="quickSummary">-</strong>
+        </div>
+      </section>
+
+      <section class="dashboard">
+        <form id="configForm" class="panel config-panel">
+          <div class="panel-head">
+            <h2>配置中心</h2>
+            <button class="icon-button" type="button" id="reloadBtn" title="重新载入">↻</button>
+          </div>
+
+          <div class="webhook-box">
+            <div class="panel-head compact">
+              <h2>Webhook 接入</h2>
+              <button type="button" id="copyWebhookBtn">复制 URL</button>
+            </div>
+            <label class="public-url-field">
+              <span>对外访问地址</span>
+              <input name="publicBaseUrl" type="text" placeholder="http://192.168.1.50:8099" />
+            </label>
+            <input id="webhookUrl" type="text" readonly />
+            <pre id="webhookTemplate"></pre>
+          </div>
+
+          <h3 class="section-title">API 凭据</h3>
+          <div class="field-grid">
+            <label>
+              <span>Telegram Bot Token</span>
+              <input name="telegramBotToken" type="password" autocomplete="off" />
+            </label>
+            <label>
+              <span>Telegram Chat ID</span>
+              <input name="telegramChatId" type="text" autocomplete="off" />
+            </label>
+            <label>
+              <span>TMDB API Key</span>
+              <input name="tmdbApiKey" type="password" autocomplete="off" />
+            </label>
+            <label>
+              <span>TMDB 语言</span>
+              <select name="tmdbLanguage">
+                <option value="zh-CN">简体中文</option>
+                <option value="zh-TW">繁体中文</option>
+                <option value="en-US">English</option>
+                <option value="ja-JP">日本語</option>
+                <option value="ko-KR">한국어</option>
+              </select>
+            </label>
+            <label>
+              <span>Emby URL</span>
+              <input name="embyUrl" type="url" placeholder="http://192.168.1.10:8096" />
+            </label>
+            <label>
+              <span>Emby API Key</span>
+              <input name="embyApiKey" type="password" autocomplete="off" />
+            </label>
+            <label>
+              <span>Emby User ID</span>
+              <input name="embyUserId" type="text" autocomplete="off" />
+            </label>
+            <label>
+              <span>Webhook 密钥</span>
+              <input name="webhookSecret" type="password" autocomplete="off" placeholder="可选，用于校验 token" />
+            </label>
+          </div>
+
+          <h3 class="section-title">备用扫描</h3>
+          <div class="field-grid compact-grid">
+            <label>
+              <span>备用轮询间隔</span>
+              <input name="pollIntervalSeconds" type="number" min="60" max="86400" step="30" />
+            </label>
+            <label>
+              <span>备用扫描数量</span>
+              <input name="latestLimit" type="number" min="1" max="100" />
+            </label>
+            <label>
+              <span>简介最大长度</span>
+              <input name="overviewMaxLength" type="number" min="80" max="2000" />
+            </label>
+          </div>
+
+          <label class="wide-field">
+            <span>入库事件名</span>
+            <input name="monitoredEvents" type="text" placeholder="library.new,item.added,item.created" />
+          </label>
+
+          <fieldset class="choice-row">
+            <legend>媒体类型</legend>
+            <label><input name="includeTypes" type="checkbox" value="Movie" />电影</label>
+            <label><input name="includeTypes" type="checkbox" value="Episode" />剧集单集</label>
+            <label><input name="includeTypes" type="checkbox" value="Series" />剧集</label>
+          </fieldset>
+
+          <div class="switch-row">
+            <label class="switch">
+              <input name="notifyFirstRun" type="checkbox" />
+              <span></span>
+              首次扫描也推送
+            </label>
+            <label class="switch">
+              <input name="proxyEnabled" type="checkbox" />
+              <span></span>
+              启用网络代理
+            </label>
+            <label class="switch">
+              <input name="doubanFallbackEnabled" type="checkbox" />
+              <span></span>
+              豆瓣备用补全
+            </label>
+            <label class="switch">
+              <input name="enableCovers" type="checkbox" />
+              <span></span>
+              发送封面
+            </label>
+          </div>
+
+          <label class="proxy-field">
+            <span>代理地址</span>
+            <input name="proxyUrl" type="text" placeholder="http://127.0.0.1:7890" />
+          </label>
+
+          <div class="actions">
+            <button type="submit" class="primary">保存配置</button>
+            <button type="button" class="soft" id="testAllBtn">测试全部</button>
+            <button type="button" class="ghost" id="testEmbyBtn">Emby</button>
+            <button type="button" class="ghost" id="testTmdbBtn">TMDB</button>
+            <button type="button" class="ghost" id="testDoubanBtn">豆瓣</button>
+            <button type="button" class="ghost" id="testTgBtn">TG</button>
+          </div>
+        </form>
+
+        <aside class="panel control-panel">
+          <div class="panel-head">
+            <h2>运行状态</h2>
+            <div id="seenCount" class="metric">0</div>
+          </div>
+          <div class="state-grid">
+            <div>
+              <span>上次备用轮询</span>
+              <strong id="lastTickAt">-</strong>
+            </div>
+            <div>
+              <span>上次 Webhook</span>
+              <strong id="lastWebhookAt">-</strong>
+            </div>
+            <div>
+              <span>上次备用扫描</span>
+              <strong id="lastScanAt">-</strong>
+            </div>
+            <div class="wide">
+              <span>摘要</span>
+              <strong id="lastSummary">-</strong>
+            </div>
+            <div class="wide error-box" id="lastErrorWrap">
+              <span>错误</span>
+              <strong id="lastError">-</strong>
+            </div>
+          </div>
+
+          <div class="run-actions">
+            <button type="button" class="primary" id="startBtn">启动备用轮询</button>
+            <button type="button" id="stopBtn">停止备用轮询</button>
+            <button type="button" id="scanBtn">备用立即扫描</button>
+            <button type="button" class="danger" id="clearSeenBtn">清空记录</button>
+          </div>
+
+          <div class="logs" id="logs"></div>
+        </aside>
+      </section>
+
+      <div class="toast" id="toast" hidden></div>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
