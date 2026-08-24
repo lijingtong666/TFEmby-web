@@ -392,7 +392,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.2"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.3"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />

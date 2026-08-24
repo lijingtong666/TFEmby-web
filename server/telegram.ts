@@ -366,7 +366,7 @@ export function notifyRequestStatus(request: MediaRequest, operator: string) {
 }
 
 export function sendTelegramTest() {
-  return sendTelegram("🔔 <b>TFEmby Web 通知测试成功</b>\n\nTelegram 求片和入库通知已连接。", undefined);
+  return sendTelegram("这是一条测试信息", undefined);
 }
 
 export async function getTgBotConfig() {
@@ -812,7 +812,7 @@ export async function handleEmbyWebhook(payload: EmbyItem, headers: Record<strin
   if (isWebhookTest(payload)) {
     let sent = 0;
     try {
-      sent = await sendBotText(settings, "这是一条 TFEmby Web 测试信息");
+      sent = await sendBotText(settings, "这是一条测试信息");
       state.lastError = "";
       state.lastSummary = `Emby Webhook 测试成功，Telegram 已发送 ${sent} 个会话`;
     } catch (error) {
@@ -1338,7 +1338,7 @@ export async function testTgBot(target: "emby" | "tmdb" | "douban" | "telegram" 
       messages.push("豆瓣备用连接成功");
     }
     if (current === "telegram") {
-      const sent = await sendBotText(settings, "这是一条 TFEmby Web 测试信息");
+      const sent = await sendBotText(settings, "这是一条测试信息");
       messages.push(`Telegram 测试消息已发送：${sent} 个会话`);
     }
   }
