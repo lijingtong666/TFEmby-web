@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Gauge,
   Library,
   Layers3,
   Link2,
@@ -35,7 +36,7 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, loadSession, saveSession } from "./api";
-import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TvSeason, UserSession, WebSettings } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TvSeason, UserSession, WebSettings } from "./types";
 
 type View = "overview" | "charts" | "search" | "resume" | "latest" | "requests" | "admin";
 
@@ -106,11 +107,13 @@ function formatDate(value?: string) {
 
 function Poster({ item, compact = false }: { item: MediaItem | ChartItem | MediaRequest; compact?: boolean }) {
   const title = "title" in item ? item.title : "";
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [item.poster]);
+  const sources = [item.poster, "backdrop" in item ? item.backdrop : undefined].filter((value): value is string => Boolean(value));
+  const [sourceIndex, setSourceIndex] = useState(0);
+  useEffect(() => setSourceIndex(0), [item.poster, "backdrop" in item ? item.backdrop : undefined]);
+  const source = sources[sourceIndex];
   return (
     <div className={`poster ${compact ? "posterCompact" : ""}`}>
-      {item.poster && !failed ? <img src={item.poster} alt={title} loading="lazy" onError={() => setFailed(true)} /> : <div className="posterFallback">{title.slice(0, 4)}</div>}
+      {source ? <img src={source} alt={title} loading="lazy" onError={() => setSourceIndex((current) => current + 1)} /> : <div className="posterFallback">{title.slice(0, 4)}</div>}
     </div>
   );
 }
@@ -392,7 +395,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.4"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.5"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -871,6 +874,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [latency, setLatency] = useState<LatencyStatus | null>(null);
 
   useEffect(() => {
     if (settings.data) {
@@ -919,6 +923,43 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       if (saved.warning) throw new Error(saved.warning);
       const result = await api.testAdminSetting(session, target);
       setMessage(result.messages?.join("；") || "连接测试成功。");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function measureLatency() {
+    if (!draft) return;
+    setBusy("latency");
+    setError("");
+    setMessage("");
+    try {
+      const saved = await api.saveAdminSettings(session, draft);
+      setDraft({ ...saved, bot: saved.bot || draft.bot });
+      onSaved();
+      if (saved.warning) throw new Error(saved.warning);
+      setLatency(await api.latencyStatus(session));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sendTelegramMenu() {
+    if (!draft) return;
+    setBusy("menu");
+    setError("");
+    setMessage("");
+    try {
+      const saved = await api.saveAdminSettings(session, draft);
+      setDraft({ ...saved, bot: saved.bot || draft.bot });
+      onSaved();
+      if (saved.warning) throw new Error(saved.warning);
+      const result = await api.telegramAction(session, "menu") as { sent?: number; failed?: number };
+      setMessage(`Telegram 菜单已发送：${result.sent || 0} 个用户${result.failed ? `，失败 ${result.failed} 个` : ""}。`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -997,8 +1038,10 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
           <SettingField label="菜单用户 ID" value={bot.telegramMenuUserIds} onChange={(value) => updateBot("telegramMenuUserIds", value)} placeholder="允许使用机器人菜单的 Telegram 用户 ID" />
           <SettingField label="Telegram API 地址" value={draft.web.telegramApiBase} onChange={(value) => updateWeb("telegramApiBase", value)} placeholder="https://api.telegram.org" />
         </div>
+        <div className="settingsHelp">菜单用户需要先在 Telegram 私聊机器人并发送 /start，再保存用户 ID 并点击“发送菜单”。</div>
         <div className="settingsTestRow">
           <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("telegram")}><TestTube2 size={16} />{busy === "telegram" ? "测试中" : "测试 Telegram"}</button>
+          <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={sendTelegramMenu}><Send size={16} />{busy === "menu" ? "发送中" : "发送菜单"}</button>
         </div>
       </div>
 
@@ -1010,6 +1053,20 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
         <div className="settingsSwitches proxySwitches">
           <ToggleSetting label="启用 TG/TMDB 代理" checked={draft.web.proxyEnabled} onChange={(value) => updateWeb("proxyEnabled", value)} />
         </div>
+        <div className="settingsTestRow">
+          <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={measureLatency}><Gauge size={16} />{busy === "latency" ? "测速中" : "测试延迟"}</button>
+        </div>
+        {latency ? (
+          <div className="latencyGrid">
+            {latency.results.map((item) => (
+              <div className={`latencyItem ${item.ok ? "online" : "offline"}`} key={item.target}>
+                <div><span className="connectionDot" /><strong>{item.label}</strong></div>
+                <b>{item.latencyMs === null ? "未启用" : `${item.latencyMs} ms`}</b>
+                <span>{item.status}{item.target !== "proxy" ? ` · ${item.viaProxy ? "代理" : "直连"}` : ""}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="settingsGroup">
@@ -1090,7 +1147,7 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
     }
   }
 
-  async function telegramAction(action: "test" | "start" | "stop" | "scan") {
+  async function telegramAction(action: "test" | "start" | "stop" | "scan" | "menu") {
     if (!session) return;
     setTelegramBusy(action);
     setError("");
@@ -1140,6 +1197,8 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
             <div className="telegramMeta">
               <span>{telegram.data.directConfigured ? "求片通知已配置" : "未配置 Bot Token / Chat ID"}</span>
               {telegram.data.status?.telegramRunning ? <span>Telegram 菜单监听中</span> : null}
+              {telegram.data.status?.menuReady ? <span>命令菜单已同步</span> : null}
+              {telegram.data.status?.lastMenuError ? <span>菜单异常：{telegram.data.status.lastMenuError}</span> : null}
               {telegram.data.status?.seenCount !== undefined ? <span>已记录 {telegram.data.status.seenCount}</span> : null}
               {telegram.data.status?.lastSummary ? <span>{telegram.data.status.lastSummary}</span> : null}
             </div>
@@ -1148,6 +1207,9 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
             <button className="softBtn" disabled={!telegram.data.directConfigured || Boolean(telegramBusy)} onClick={() => telegramAction("test")}>
               <BellRing size={16} />{telegramBusy === "test" ? "发送中" : "测试通知"}
             </button>
+            <button className="softBtn" disabled={!telegram.data.directConfigured || Boolean(telegramBusy)} onClick={() => telegramAction("menu")}>
+              <Send size={16} />{telegramBusy === "menu" ? "发送中" : "发送菜单"}
+            </button>
             {telegram.data.status?.running ? (
               <button className="softBtn" disabled={Boolean(telegramBusy)} onClick={() => telegramAction("stop")}>{telegramBusy === "stop" ? "停止中" : "停止扫描"}</button>
             ) : (
@@ -1155,6 +1217,16 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
             )}
             <button className="softBtn" disabled={!telegram.data.serviceReady || Boolean(telegramBusy)} onClick={() => telegramAction("scan")}>{telegramBusy === "scan" ? "扫描中" : "立即扫描"}</button>
           </div>
+        </div>
+      </div>
+      <div className="adminSection">
+        <div className="subhead">
+          <h2>求片申请</h2>
+          <span>{requests.data.length} 条</span>
+        </div>
+        {!requests.data.length && !requests.loading ? <div className="notice">暂无求片申请。</div> : null}
+        <div className="requestList">
+          {requests.data.map((item) => <RequestRow key={item.id} item={item} admin updating={updating === item.id} onStatus={(status) => update(item, status)} />)}
         </div>
       </div>
       <div className="adminSection">
@@ -1173,16 +1245,6 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
               {item.recentEpisodeRange ? <div className="episodeRange cardEpisodeRange">{item.recentEpisodeRange}</div> : null}
             </article>
           ))}
-        </div>
-      </div>
-      <div className="adminSection">
-        <div className="subhead">
-          <h2>求片申请</h2>
-          <span>{requests.data.length} 条</span>
-        </div>
-        {!requests.data.length && !requests.loading ? <div className="notice">暂无求片申请。</div> : null}
-        <div className="requestList">
-          {requests.data.map((item) => <RequestRow key={item.id} item={item} admin updating={updating === item.id} onStatus={(status) => update(item, status)} />)}
         </div>
       </div>
     </section>

@@ -1,4 +1,4 @@
-import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TvSeason, UserSession } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TvSeason, UserSession } from "./types";
 
 const sessionKey = "tfemby-web-session";
 
@@ -106,8 +106,9 @@ export const api = {
     }),
   testAdminSetting: (session: UserSession, target: "emby" | "tmdb" | "douban" | "telegram" | "all") =>
     request<{ messages?: string[] }>(`/api/admin/settings/test/${target}`, session, { method: "POST" }),
+  latencyStatus: (session: UserSession) => request<LatencyStatus>("/api/admin/latency", session, { method: "POST" }),
   telegramStatus: (session: UserSession) => request<TelegramIntegration>("/api/integrations/telegram", session),
   telegramTest: (session: UserSession) => request<{ configured: boolean; sent: number }>("/api/integrations/telegram/test", session, { method: "POST" }),
-  telegramAction: (session: UserSession, action: "start" | "stop" | "scan") =>
+  telegramAction: (session: UserSession, action: "start" | "stop" | "scan" | "menu") =>
     request<Record<string, unknown>>(`/api/integrations/telegram/${action}`, session, { method: "POST" })
 };

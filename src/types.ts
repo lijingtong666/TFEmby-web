@@ -143,7 +143,22 @@ export type TelegramIntegration = {
     lastError?: string;
     lastSummary?: string;
     seenCount?: number;
+    menuReady?: boolean;
+    lastMenuAt?: string | null;
+    lastMenuError?: string;
   } | null;
+};
+
+export type LatencyStatus = {
+  checkedAt: string;
+  results: Array<{
+    target: "tmdb" | "telegram" | "proxy";
+    label: string;
+    ok: boolean;
+    latencyMs: number | null;
+    status: string;
+    viaProxy: boolean;
+  }>;
 };
 
 export type RequestStatus = "pending" | "approved" | "fulfilled" | "rejected";

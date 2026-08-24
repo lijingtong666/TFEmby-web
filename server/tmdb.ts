@@ -30,6 +30,17 @@ type TmdbResponse = {
   results?: TmdbMedia[];
 };
 
+type CachedImage = {
+  body: Buffer;
+  contentType: string;
+  expiresAt: number;
+};
+
+const imageCache = new Map<string, CachedImage>();
+const imageLoads = new Map<string, Promise<CachedImage>>();
+const imageCacheMaxBytes = 64 * 1024 * 1024;
+let imageCacheBytes = 0;
+
 const image = (imagePath?: string, size = "w500") => imagePath
   ? `/api/tmdb/image?path=${encodeURIComponent(imagePath)}&size=${encodeURIComponent(size)}`
   : undefined;
@@ -243,14 +254,78 @@ export async function fetchTmdbImage(imagePath: string, size = "w500") {
   }
   const allowedSizes = new Set(["w185", "w300", "w342", "w500", "w780", "original"]);
   const chosenSize = allowedSizes.has(size) ? size : "w500";
-  const response = await externalServiceFetch(`https://image.tmdb.org/t/p/${chosenSize}${imagePath}`, {
-    headers: { Accept: "image/avif,image/webp,image/*,*/*" },
-    signal: AbortSignal.timeout(15000)
-  });
-  if (!response.ok) {
-    const error = new Error(`TMDB 图片读取失败：HTTP ${response.status}`);
+  const cacheKey = `${chosenSize}:${imagePath}`;
+  const cached = imageCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    imageCache.delete(cacheKey);
+    imageCache.set(cacheKey, cached);
+    return new Response(cached.body, { headers: { "Content-Type": cached.contentType, "X-TFEmby-Image-Cache": "HIT" } });
+  }
+
+  let loading = imageLoads.get(cacheKey);
+  if (!loading) {
+    loading = loadTmdbImage(`https://image.tmdb.org/t/p/${chosenSize}${imagePath}`);
+    imageLoads.set(cacheKey, loading);
+  }
+  try {
+    const loaded = await loading;
+    cacheImage(cacheKey, loaded);
+    return new Response(loaded.body, { headers: { "Content-Type": loaded.contentType, "X-TFEmby-Image-Cache": "MISS" } });
+  } finally {
+    imageLoads.delete(cacheKey);
+  }
+}
+
+async function imageCandidate(url: string, proxied: boolean, controller: AbortController) {
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const fetcher = proxied ? externalServiceFetch : fetch;
+    const response = await fetcher(url, {
+      headers: { Accept: "image/avif,image/webp,image/*,*/*" },
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const contentType = response.headers.get("content-type") || "image/jpeg";
+    if (!contentType.startsWith("image/")) throw new Error("返回内容不是图片");
+    const body = Buffer.from(await response.arrayBuffer());
+    if (!body.length || body.length > 10 * 1024 * 1024) throw new Error("图片大小无效");
+    return { body, contentType, expiresAt: Date.now() + 6 * 60 * 60 * 1000 };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function loadTmdbImage(url: string): Promise<CachedImage> {
+  const directController = new AbortController();
+  const proxyController = new AbortController();
+  const candidates: Array<Promise<{ value: CachedImage; source: "direct" | "proxy" }>> = [
+    imageCandidate(url, false, directController).then((value) => ({ value, source: "direct" as const }))
+  ];
+  if (config.proxyEnabled && config.proxyUrl) {
+    candidates.push(imageCandidate(url, true, proxyController).then((value) => ({ value, source: "proxy" as const })));
+  }
+  try {
+    const winner = await Promise.any(candidates);
+    if (winner.source === "direct") proxyController.abort();
+    else directController.abort();
+    return winner.value;
+  } catch {
+    const error = new Error("TMDB 图片通过直连和代理均读取失败。");
     (error as Error & { status?: number }).status = 502;
     throw error;
   }
-  return response;
+}
+
+function cacheImage(key: string, value: CachedImage) {
+  const existing = imageCache.get(key);
+  if (existing) imageCacheBytes -= existing.body.byteLength;
+  imageCache.set(key, value);
+  imageCacheBytes += value.body.byteLength;
+  while (imageCache.size > 120 || imageCacheBytes > imageCacheMaxBytes) {
+    const oldestKey = imageCache.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    const oldest = imageCache.get(oldestKey);
+    imageCache.delete(oldestKey);
+    imageCacheBytes -= oldest?.body.byteLength || 0;
+  }
 }

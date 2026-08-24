@@ -49,7 +49,7 @@ export const config: RuntimeConfig = {
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.6.4",
+  version: process.env.APP_VERSION || "0.6.5",
   timeZone: process.env.TZ || defaultTimeZone
 };
 

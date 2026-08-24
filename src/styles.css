@@ -1762,6 +1762,66 @@ h2 {
   margin-top: 15px;
 }
 
+.settingsHelp {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.latencyGrid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.latencyItem {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 7px;
+  background: var(--surface-soft);
+}
+
+.latencyItem > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.latencyItem b {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.latencyItem > span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.latencyItem.online {
+  border-color: color-mix(in srgb, var(--green) 24%, var(--line));
+}
+
+.latencyItem.online .connectionDot {
+  background: var(--green);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.latencyItem.offline {
+  border-color: color-mix(in srgb, #d75050 24%, var(--line));
+}
+
+.latencyItem.offline .connectionDot {
+  background: #d75050;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #d75050 14%, transparent);
+}
+
 .webhookGuide {
   margin-bottom: 18px;
   padding: 16px;
@@ -1969,6 +2029,10 @@ h2 {
 
   .settingsSwitches {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .latencyGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

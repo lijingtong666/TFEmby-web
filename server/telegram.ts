@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppSession } from "./auth.js";
 import { config } from "./config.js";
-import { externalServiceFetch } from "./proxy.js";
+import { externalServiceFetch, testProxyLatency } from "./proxy.js";
 import { createMediaRequest } from "./requests.js";
 import { fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
 import type { ChartItem, MediaRequest, RequestStatus } from "./types.js";
@@ -30,7 +30,19 @@ type TgBotStatus = {
   lastError: string;
   lastSummary: string;
   seenCount: number;
+  menuReady: boolean;
+  lastMenuAt: string | null;
+  lastMenuError: string;
   logs: Array<{ at: string; message: string }>;
+};
+
+export type LatencyStatus = {
+  target: "tmdb" | "telegram" | "proxy";
+  label: string;
+  ok: boolean;
+  latencyMs: number | null;
+  status: string;
+  viaProxy: boolean;
 };
 
 type Metadata = {
@@ -69,6 +81,9 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let polling = false;
 let telegramRunning = false;
 let lastTickAt: string | null = null;
+let menuReady = false;
+let lastMenuAt: string | null = null;
+let lastMenuError = "";
 
 const statusLabels: Record<RequestStatus, string> = {
   pending: "待处理",
@@ -377,6 +392,11 @@ export function saveTgBotConfig(settings: TgBotConfig) {
   const task = configQueue.then(async () => {
     const normalized = normalizeBotConfig(settings);
     await saveJson(botConfigPath, normalized);
+    if (normalized.telegramBotToken) {
+      await syncTelegramCommands(normalized).catch((error: Error) => {
+        addLog(`Telegram 菜单同步失败：${error.message}`);
+      });
+    }
     addLog("通知配置已保存");
     return normalized;
   });
@@ -1038,6 +1058,76 @@ function menuKeyboard() {
   };
 }
 
+function telegramCommands() {
+  return [
+    { command: "start", description: "开始使用机器人" },
+    { command: "recent", description: "查看最近入库 20 条" },
+    { command: "search", description: "搜索库中影片是否存在" },
+    { command: "request", description: "输入片名或 TMDB ID 求片" },
+    { command: "cancel", description: "取消当前操作" },
+    { command: "help", description: "查看使用说明" }
+  ];
+}
+
+async function syncTelegramCommands(settings: TgBotConfig) {
+  requireValues(settings, ["telegramBotToken"]);
+  try {
+    await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/deleteWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ drop_pending_updates: false })
+    });
+    await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands: telegramCommands() })
+    });
+    await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/setChatMenuButton`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ menu_button: { type: "commands" } })
+    });
+    for (const chatId of parseChatIds(settings.telegramMenuUserIds)) {
+      await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/setChatMenuButton`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, menu_button: { type: "commands" } })
+      }).catch((error: Error) => addLog(`用户 ${chatId} 菜单按钮同步失败：${error.message}`));
+    }
+    menuReady = true;
+    lastMenuAt = nowIso();
+    lastMenuError = "";
+    addLog("Telegram 命令与菜单按钮已同步");
+  } catch (error) {
+    menuReady = false;
+    lastMenuError = (error as Error).message;
+    throw error;
+  }
+}
+
+async function sendConfiguredMenu(settings: TgBotConfig) {
+  await syncTelegramCommands(settings);
+  const configuredUsers = parseChatIds(settings.telegramMenuUserIds);
+  const targets = [...new Set(configuredUsers.length ? configuredUsers : parseChatIds(settings.telegramChatId))];
+  if (!targets.length) throw new Error("请先填写菜单用户 ID 或 Chat ID。");
+  let sent = 0;
+  const failures: string[] = [];
+  for (const chatId of targets) {
+    try {
+      await sendBotText(settings, menuText(), chatId, menuKeyboard());
+      sent += 1;
+    } catch (error) {
+      failures.push(`${chatId}: ${(error as Error).message}`);
+    }
+  }
+  if (!sent) {
+    throw new Error(`菜单发送失败。请先在 Telegram 中打开机器人并发送 /start。 ${failures.join("；")}`);
+  }
+  lastMenuAt = nowIso();
+  lastMenuError = failures.join("；");
+  return { sent, failed: failures.length, targets: targets.length };
+}
+
 function telegramUserName(user: Record<string, any>) {
   if (user.username) return `@${user.username}`;
   return [user.first_name, user.last_name].map((value) => String(value || "").trim()).filter(Boolean).join(" ") || `Telegram ${user.id || "用户"}`;
@@ -1240,7 +1330,7 @@ async function telegramMenuLoop() {
   if (telegramRunning) return;
   telegramRunning = true;
   addLog("TFEmby Telegram 菜单监听已启动");
-  let lastToken = "";
+  let lastSyncKey = "";
   while (telegramRunning) {
     const settings = await getTgBotConfig();
     if (!settings.telegramBotToken) {
@@ -1248,20 +1338,10 @@ async function telegramMenuLoop() {
       continue;
     }
     try {
-      if (lastToken !== settings.telegramBotToken) {
-        await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/setMyCommands`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ commands: [
-            { command: "start", description: "开始使用机器人" },
-            { command: "recent", description: "查看最近入库 20 条" },
-            { command: "search", description: "搜索库中影片是否存在" },
-            { command: "request", description: "输入片名或 TMDB ID 求片" },
-            { command: "cancel", description: "取消当前操作" },
-            { command: "help", description: "查看使用说明" }
-          ] })
-        });
-        lastToken = settings.telegramBotToken;
+      const syncKey = [settings.telegramBotToken, config.telegramApiBase, config.proxyEnabled, config.proxyUrl].join("|");
+      if (lastSyncKey !== syncKey) {
+        await syncTelegramCommands(settings);
+        lastSyncKey = syncKey;
       }
       const state = await getState();
       const updates = await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/getUpdates`, {
@@ -1314,9 +1394,58 @@ export async function getTelegramIntegrationStatus() {
     lastError: state.lastError,
     lastSummary: state.lastSummary,
     seenCount: Object.keys(state.seen).length,
+    menuReady,
+    lastMenuAt,
+    lastMenuError,
     logs
   };
   return { directConfigured: botConfigured(settings), serviceReady: true, status };
+}
+
+async function latencyCheck(
+  target: LatencyStatus["target"],
+  label: string,
+  operation: () => Promise<unknown>
+): Promise<LatencyStatus> {
+  const startedAt = performance.now();
+  try {
+    await operation();
+    return {
+      target,
+      label,
+      ok: true,
+      latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
+      status: "连接正常",
+      viaProxy: config.proxyEnabled
+    };
+  } catch (error) {
+    return {
+      target,
+      label,
+      ok: false,
+      latencyMs: Math.max(1, Math.round(performance.now() - startedAt)),
+      status: (error as Error).message,
+      viaProxy: config.proxyEnabled
+    };
+  }
+}
+
+export async function getNetworkLatencyStatus() {
+  const settings = await getTgBotConfig();
+  const [tmdb, telegram, proxy] = await Promise.all([
+    latencyCheck("tmdb", "TMDB", () => tmdbGet(settings, "configuration")),
+    latencyCheck("telegram", "Telegram", () => fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/getMe`)),
+    testProxyLatency()
+  ]);
+  const proxyStatus: LatencyStatus = {
+    target: "proxy",
+    label: "网络代理",
+    ok: proxy.ok,
+    latencyMs: proxy.latencyMs,
+    status: proxy.status,
+    viaProxy: proxy.enabled
+  };
+  return { checkedAt: nowIso(), results: [tmdb, telegram, proxyStatus] };
 }
 
 export async function testTgBot(target: "emby" | "tmdb" | "douban" | "telegram" | "all") {
@@ -1329,8 +1458,9 @@ export async function testTgBot(target: "emby" | "tmdb" | "douban" | "telegram" 
       messages.push(`Emby 连接成功：${info.ServerName || "Emby"} / ${info.Version || "unknown"}`);
     }
     if (current === "tmdb") {
+      const startedAt = performance.now();
       await tmdbGet(settings, "configuration");
-      messages.push("TMDB 连接成功");
+      messages.push(`TMDB 连接成功：${Math.max(1, Math.round(performance.now() - startedAt))} ms`);
     }
     if (current === "douban") {
       const response = await fetch("https://movie.douban.com/j/subject_suggest?q=%E6%B5%81%E6%B5%AA%E5%9C%B0%E7%90%83", { signal: AbortSignal.timeout(12000) });
@@ -1338,14 +1468,18 @@ export async function testTgBot(target: "emby" | "tmdb" | "douban" | "telegram" 
       messages.push("豆瓣备用连接成功");
     }
     if (current === "telegram") {
+      const startedAt = performance.now();
       const sent = await sendBotText(settings, "这是一条测试信息");
-      messages.push(`Telegram 测试消息已发送：${sent} 个会话`);
+      messages.push(`Telegram 测试消息已发送：${sent} 个会话 / ${Math.max(1, Math.round(performance.now() - startedAt))} ms`);
     }
   }
   return { messages };
 }
 
-export async function controlTgBot(action: "start" | "stop" | "scan") {
+export async function controlTgBot(action: "start" | "stop" | "scan" | "menu") {
+  if (action === "menu") {
+    return sendConfiguredMenu(await getTgBotConfig());
+  }
   if (action === "start") {
     polling = true;
     schedulePoll();

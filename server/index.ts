@@ -22,6 +22,7 @@ import { fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, search
 import {
   controlTgBot,
   getTgBotConfig,
+  getNetworkLatencyStatus,
   getTelegramIntegrationStatus,
   handleEmbyWebhook,
   initializeTelegramBot,
@@ -150,6 +151,11 @@ app.post("/api/admin/settings/test/:target", asyncRoute(async (req, res) => {
     return;
   }
   res.json(await testTgBot(target));
+}));
+
+app.post("/api/admin/latency", asyncRoute(async (req, res) => {
+  requireAdmin(req);
+  res.json(await getNetworkLatencyStatus());
 }));
 
 app.post(
@@ -455,8 +461,8 @@ app.post(
   "/api/integrations/telegram/:action",
   asyncRoute(async (req, res) => {
     requireAdmin(req);
-    const action = scalar(req.params.action, "") as "start" | "stop" | "scan";
-    if (!(["start", "stop", "scan"] as string[]).includes(action)) {
+    const action = scalar(req.params.action, "") as "start" | "stop" | "scan" | "menu";
+    if (!(["start", "stop", "scan", "menu"] as string[]).includes(action)) {
       res.status(400).json({ error: "机器人操作无效。" });
       return;
     }
