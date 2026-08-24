@@ -82,9 +82,6 @@ export type WebSettings = {
   telegramBotToken: string;
   telegramChatId: string;
   telegramApiBase: string;
-  tgBotUrl: string;
-  publicTgBotUrl: string;
-  tgBotPort: number;
 };
 
 export type TgBotConfig = {
@@ -95,7 +92,6 @@ export type TgBotConfig = {
   embyUrl: string;
   embyApiKey: string;
   embyUserId: string;
-  publicBaseUrl: string;
   webhookSecret: string;
   doubanFallbackEnabled: boolean;
   enableCovers: boolean;
@@ -105,22 +101,18 @@ export type TgBotConfig = {
   pollIntervalSeconds: number;
   latestLimit: number;
   notifyFirstRun: boolean;
-  proxyEnabled: boolean;
-  proxyUrl: string;
 };
 
 export type AdminSettings = {
   web: WebSettings;
   bot: TgBotConfig | null;
-  sidecarReachable: boolean;
+  notificationReady: boolean;
   warning?: string;
 };
 
 export type TelegramIntegration = {
   directConfigured: boolean;
-  sidecarReachable: boolean;
-  manageUrl: string;
-  port: number;
+  serviceReady: boolean;
   status: {
     version?: string;
     running?: boolean;

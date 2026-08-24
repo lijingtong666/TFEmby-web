@@ -1,5 +1,0 @@
-data/config.json
-data/state.json
-*.pyc
-__pycache__/
-.DS_Store

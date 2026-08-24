@@ -12,9 +12,6 @@ export type WebSettings = {
   telegramBotToken: string;
   telegramChatId: string;
   telegramApiBase: string;
-  tgBotUrl: string;
-  publicTgBotUrl: string;
-  tgBotPort: number;
 };
 
 type RuntimeConfig = WebSettings & {
@@ -41,13 +38,10 @@ export const config: RuntimeConfig = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || process.env.TG_BOT_TOKEN || "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID || process.env.TG_CHAT_ID || "",
   telegramApiBase: cleanBaseUrl(process.env.TELEGRAM_API_BASE || "https://api.telegram.org"),
-  tgBotUrl: cleanBaseUrl(process.env.TGBOT_URL || "http://127.0.0.1:8099"),
-  publicTgBotUrl: cleanBaseUrl(process.env.PUBLIC_TGBOT_URL || ""),
-  tgBotPort: Number(process.env.TGBOT_PORT || 8099),
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.3.0"
+  version: process.env.APP_VERSION || "0.4.0"
 };
 
 const settingsPath = path.resolve(config.dataDir, "settings.json");
@@ -67,24 +61,10 @@ function normalizeUrl(value: unknown, label: string, fallback = "") {
   }
 }
 
-function normalizeTgBotUrl(value: unknown) {
-  const normalized = normalizeUrl(value, "机器人内部地址", "http://127.0.0.1:8099") || "http://127.0.0.1:8099";
-  return normalized === "http://tgbot:8099" || normalized === "http://tfemby-tgbot:8099"
-    ? "http://127.0.0.1:8099"
-    : normalized;
-}
-
 function normalizedSettings(input: Partial<WebSettings>): WebSettings {
   const appName = String(input.appName ?? config.appName).trim();
   if (!appName || appName.length > 80) {
     const error = new Error("项目名称不能为空且不能超过 80 个字符。");
-    (error as Error & { status?: number }).status = 400;
-    throw error;
-  }
-
-  const tgBotPort = Number(input.tgBotPort ?? config.tgBotPort);
-  if (!Number.isInteger(tgBotPort) || tgBotPort < 1 || tgBotPort > 65535) {
-    const error = new Error("机器人端口必须是 1 到 65535 之间的整数。");
     (error as Error & { status?: number }).status = 400;
     throw error;
   }
@@ -97,10 +77,7 @@ function normalizedSettings(input: Partial<WebSettings>): WebSettings {
     doubanApiBase: normalizeUrl(input.doubanApiBase, "豆瓣 API 地址"),
     telegramBotToken: String(input.telegramBotToken ?? config.telegramBotToken).trim(),
     telegramChatId: String(input.telegramChatId ?? config.telegramChatId).trim(),
-    telegramApiBase: normalizeUrl(input.telegramApiBase, "Telegram API 地址", "https://api.telegram.org") || "https://api.telegram.org",
-    tgBotUrl: normalizeTgBotUrl(input.tgBotUrl),
-    publicTgBotUrl: normalizeUrl(input.publicTgBotUrl, "机器人访问地址"),
-    tgBotPort
+    telegramApiBase: normalizeUrl(input.telegramApiBase, "Telegram API 地址", "https://api.telegram.org") || "https://api.telegram.org"
   };
 }
 
@@ -117,10 +94,7 @@ export function getWebSettings(): WebSettings {
     doubanApiBase: config.doubanApiBase,
     telegramBotToken: config.telegramBotToken,
     telegramChatId: config.telegramChatId,
-    telegramApiBase: config.telegramApiBase,
-    tgBotUrl: config.tgBotUrl,
-    publicTgBotUrl: config.publicTgBotUrl,
-    tgBotPort: config.tgBotPort
+    telegramApiBase: config.telegramApiBase
   };
 }
 

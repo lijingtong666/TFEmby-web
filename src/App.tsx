@@ -399,7 +399,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.3.0"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.4.0"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -713,7 +713,6 @@ const defaultBotConfig: TgBotConfig = {
   embyUrl: "",
   embyApiKey: "",
   embyUserId: "",
-  publicBaseUrl: "",
   webhookSecret: "",
   doubanFallbackEnabled: true,
   enableCovers: true,
@@ -722,9 +721,7 @@ const defaultBotConfig: TgBotConfig = {
   includeTypes: ["Movie", "Episode"],
   pollIntervalSeconds: 300,
   latestLimit: 20,
-  notifyFirstRun: false,
-  proxyEnabled: false,
-  proxyUrl: ""
+  notifyFirstRun: false
 };
 
 function SettingField({ label, value, onChange, placeholder, type = "text", min, max }: {
@@ -852,8 +849,8 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
           <strong>系统设置</strong>
           <span>配置保存在数据卷中，保存后立即生效</span>
         </div>
-        <span className={`connectionPill ${draft.sidecarReachable ? "online" : ""}`}>
-          <span />{draft.sidecarReachable ? "机器人已连接" : "机器人未连接"}
+        <span className={`connectionPill ${draft.notificationReady ? "online" : ""}`}>
+          <span />{draft.notificationReady ? "通知服务已就绪" : "通知服务异常"}
         </span>
       </div>
 
@@ -893,7 +890,6 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
           <SecretSettingField label="Bot Token" value={draft.web.telegramBotToken} onChange={(value) => updateWeb("telegramBotToken", value)} />
           <SettingField label="Chat ID" value={draft.web.telegramChatId} onChange={(value) => updateWeb("telegramChatId", value)} placeholder="多个 ID 使用英文逗号分隔" />
           <SettingField label="Telegram API 地址" value={draft.web.telegramApiBase} onChange={(value) => updateWeb("telegramApiBase", value)} placeholder="https://api.telegram.org" />
-          <SettingField label="机器人外部访问地址" value={draft.web.publicTgBotUrl} onChange={(value) => updateWeb("publicTgBotUrl", value)} placeholder="http://NAS-IP:8099" />
         </div>
         <div className="settingsTestRow">
           <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("telegram")}><TestTube2 size={16} />{busy === "telegram" ? "测试中" : "测试 Telegram"}</button>
@@ -901,22 +897,18 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       </div>
 
       <div className="settingsGroup">
-        <div className="settingsGroupHead"><h3>机器人高级设置</h3><span>Webhook、扫描、封面和代理</span></div>
+        <div className="settingsGroupHead"><h3>通知高级设置</h3><span>Webhook、入库扫描、封面和元数据</span></div>
         <div className="settingsGrid">
-          <SettingField label="机器人内部地址" value={draft.web.tgBotUrl} onChange={(value) => updateWeb("tgBotUrl", value)} placeholder="http://127.0.0.1:8099" />
-          <SettingField label="机器人访问端口" type="number" min={1} max={65535} value={draft.web.tgBotPort} onChange={(value) => updateWeb("tgBotPort", Number(value))} />
           <SecretSettingField label="Webhook 密钥" value={bot.webhookSecret} onChange={(value) => updateBot("webhookSecret", value)} />
           <SettingField label="监听事件" value={bot.monitoredEvents} onChange={(value) => updateBot("monitoredEvents", value)} />
           <SettingField label="扫描间隔（秒）" type="number" min={60} max={86400} value={bot.pollIntervalSeconds} onChange={(value) => setNumber("pollIntervalSeconds", value)} />
           <SettingField label="最近入库数量" type="number" min={1} max={100} value={bot.latestLimit} onChange={(value) => setNumber("latestLimit", value)} />
           <SettingField label="简介最大长度" type="number" min={80} max={2000} value={bot.overviewMaxLength} onChange={(value) => setNumber("overviewMaxLength", value)} />
-          <SettingField label="代理地址" value={bot.proxyUrl} onChange={(value) => updateBot("proxyUrl", value)} placeholder="http://host:port" />
         </div>
         <div className="settingsSwitches">
           <ToggleSetting label="通知首次扫描" checked={bot.notifyFirstRun} onChange={(value) => updateBot("notifyFirstRun", value)} />
           <ToggleSetting label="发送封面" checked={bot.enableCovers} onChange={(value) => updateBot("enableCovers", value)} />
           <ToggleSetting label="豆瓣兜底" checked={bot.doubanFallbackEnabled} onChange={(value) => updateBot("doubanFallbackEnabled", value)} />
-          <ToggleSetting label="启用代理" checked={bot.proxyEnabled} onChange={(value) => updateBot("proxyEnabled", value)} />
         </div>
         <div className="settingsChecks">
           <span>监控类型</span>
@@ -927,7 +919,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       </div>
 
       <div className="settingsSaveBar">
-        <span>Web 与机器人配置将同步保存</span>
+        <span>配置由 TFEmby Web 统一保存并立即生效</span>
         <button className="primaryBtn settingsSave" disabled={Boolean(busy)}><Save size={17} />{busy === "save" ? "保存中" : "保存设置"}</button>
       </div>
     </form>
@@ -938,9 +930,9 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
   const latest = useAsync(() => (session?.emby ? api.latest(session.emby) : Promise.resolve([])), [session?.emby?.accessToken], [] as MediaItem[]);
   const requests = useAsync(() => (session?.role === "admin" ? api.requests(session) : Promise.resolve([])), [session?.token], [] as MediaRequest[]);
   const telegram = useAsync(
-    () => session?.role === "admin" ? api.telegramStatus(session) : Promise.resolve({ directConfigured: false, sidecarReachable: false, manageUrl: "", port: 8099, status: null }),
+    () => session?.role === "admin" ? api.telegramStatus(session) : Promise.resolve({ directConfigured: false, serviceReady: false, status: null }),
     [session?.token],
-    { directConfigured: false, sidecarReachable: false, manageUrl: "", port: 8099, status: null } as TelegramIntegration
+    { directConfigured: false, serviceReady: false, status: null } as TelegramIntegration
   );
   const [updating, setUpdating] = useState("");
   const [telegramBusy, setTelegramBusy] = useState("");
@@ -998,15 +990,15 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
       <div className="adminSection">
         <div className="subhead">
           <h2>Telegram 通知</h2>
-          <span>{telegram.data.status?.version ? `TGEmbyBot v${telegram.data.status.version}` : "TGEmbyBot"}</span>
+          <span>{telegram.data.status?.version ? `TFEmby Web v${telegram.data.status.version}` : "TFEmby Web"}</span>
         </div>
         <div className="telegramCard">
           <div className="telegramIcon"><Bot size={27} /></div>
           <div className="telegramBody">
             <div className="telegramTitle">
               <strong>通知机器人</strong>
-              <span className={`connectionDot ${telegram.data.sidecarReachable ? "online" : ""}`} />
-              <span>{telegram.data.sidecarReachable ? (telegram.data.status?.running ? "扫描运行中" : "服务在线") : "未连接"}</span>
+              <span className={`connectionDot ${telegram.data.serviceReady ? "online" : ""}`} />
+              <span>{telegram.data.serviceReady ? (telegram.data.status?.running ? "扫描运行中" : "通知服务在线") : "服务异常"}</span>
             </div>
             <div className="telegramMeta">
               <span>{telegram.data.directConfigured ? "求片通知已配置" : "未配置 Bot Token / Chat ID"}</span>
@@ -1022,12 +1014,9 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
             {telegram.data.status?.running ? (
               <button className="softBtn" disabled={Boolean(telegramBusy)} onClick={() => telegramAction("stop")}>{telegramBusy === "stop" ? "停止中" : "停止扫描"}</button>
             ) : (
-              <button className="softBtn" disabled={!telegram.data.sidecarReachable || Boolean(telegramBusy)} onClick={() => telegramAction("start")}>{telegramBusy === "start" ? "启动中" : "启动扫描"}</button>
+              <button className="softBtn" disabled={!telegram.data.serviceReady || Boolean(telegramBusy)} onClick={() => telegramAction("start")}>{telegramBusy === "start" ? "启动中" : "启动扫描"}</button>
             )}
-            <button className="softBtn" disabled={!telegram.data.sidecarReachable || Boolean(telegramBusy)} onClick={() => telegramAction("scan")}>{telegramBusy === "scan" ? "扫描中" : "立即扫描"}</button>
-            <button className="iconBtn compactBtn" title="打开机器人配置" aria-label="打开机器人配置" onClick={() => window.open(telegram.data.manageUrl || `${window.location.protocol}//${window.location.hostname}:${telegram.data.port}`, "_blank", "noopener,noreferrer")}>
-              <ExternalLink size={17} />
-            </button>
+            <button className="softBtn" disabled={!telegram.data.serviceReady || Boolean(telegramBusy)} onClick={() => telegramAction("scan")}>{telegramBusy === "scan" ? "扫描中" : "立即扫描"}</button>
           </div>
         </div>
       </div>

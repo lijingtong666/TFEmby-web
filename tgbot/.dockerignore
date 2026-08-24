@@ -1,8 +1,0 @@
-.git
-.gitignore
-__pycache__/
-*.pyc
-.DS_Store
-data/*.json
-outputs/
-work/

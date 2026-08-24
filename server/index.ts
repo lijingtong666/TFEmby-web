@@ -22,6 +22,8 @@ import {
   controlTgBot,
   getTgBotConfig,
   getTelegramIntegrationStatus,
+  handleEmbyWebhook,
+  initializeTelegramBot,
   notifyRequestCreated,
   notifyRequestStatus,
   saveTgBotConfig,
@@ -37,6 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 function asyncRoute(handler: express.RequestHandler): express.RequestHandler {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
@@ -108,7 +111,7 @@ app.get("/api/admin/settings", asyncRoute(async (req, res) => {
   res.json({
     web: getWebSettings(),
     bot,
-    sidecarReachable: Boolean(bot)
+    notificationReady: Boolean(bot)
   });
 }));
 
@@ -125,8 +128,7 @@ app.put("/api/admin/settings", asyncRoute(async (req, res) => {
       telegramBotToken: web.telegramBotToken,
       telegramChatId: web.telegramChatId,
       tmdbApiKey: web.tmdbApiKey,
-      embyUrl: web.embyServerUrl,
-      publicBaseUrl: web.publicTgBotUrl
+      embyUrl: web.embyServerUrl
     } as TgBotConfig;
     try {
       bot = await saveTgBotConfig(synchronizedBot);
@@ -135,7 +137,7 @@ app.put("/api/admin/settings", asyncRoute(async (req, res) => {
     }
   }
 
-  res.json({ web, bot, sidecarReachable: Boolean(bot), warning });
+  res.json({ web, bot, notificationReady: Boolean(bot), warning });
 }));
 
 app.post("/api/admin/settings/test/:target", asyncRoute(async (req, res) => {
@@ -382,6 +384,23 @@ app.post(
   })
 );
 
+app.post(
+  "/webhook/emby",
+  asyncRoute(async (req, res) => {
+    const token = scalar(req.query.token || req.query.secret, "");
+    let payload = req.body || {};
+    const encodedPayload = typeof payload.data === "string" ? payload.data : typeof payload.payload === "string" ? payload.payload : "";
+    if (encodedPayload) {
+      try {
+        payload = JSON.parse(encodedPayload);
+      } catch {
+        // Keep the original form body when the nested value is not JSON.
+      }
+    }
+    res.json(await handleEmbyWebhook(payload, req.headers, token));
+  })
+);
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -402,6 +421,7 @@ app.use((error: Error & { status?: number }, _req: express.Request, res: express
 });
 
 await loadRuntimeSettings();
+initializeTelegramBot();
 
 app.listen(config.port, () => {
   console.log(`TFEmby Web API listening on http://127.0.0.1:${config.port}`);
