@@ -104,6 +104,7 @@ export type WebSettings = {
 export type TgBotConfig = {
   telegramBotToken: string;
   telegramChatId: string;
+  telegramMenuUserIds: string;
   tmdbApiKey: string;
   tmdbLanguage: string;
   embyUrl: string;

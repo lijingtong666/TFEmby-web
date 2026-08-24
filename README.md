@@ -17,6 +17,7 @@ Emby 影视库 Web UI，支持片库搜索、继续观看、播放历史、最�
 - 项目名称和 Emby 服务器地址
 - TMDB API Key、Bearer Token、语言和豆瓣数据源
 - Telegram Bot Token、Chat ID 和 API 地址
+- Telegram 菜单用户 ID 白名单（管理员 Chat ID 默认可用）
 - 仅供 Telegram 与 TMDB 使用的 HTTP/HTTPS 代理
 - Emby API Key、Webhook 密钥、监听事件、扫描周期和媒体类型
 - 通知封面、简介长度、豆瓣兜底和首次扫描通知
@@ -34,6 +35,8 @@ Telegram 通知由 TFEmby Web 自己的 Node 服务直接完成，没有外部�
 - 剧情简介、内容分级、别名和 TMDB 详情链接
 - 用户求片申请和管理员处理状态通知
 - `/recent` 最近入库和 `/help` 帮助菜单
+- `/search` 搜索 Emby 片库是否存在，支持片名或 TMDB ID
+- `/request` 用户求片，支持片名或 TMDB ID、影片选择和按季申请
 - Webhook 与备用定时扫描
 
 剧集支持按季求片。系统会读取 Emby 已有季度并显示“库中存在”，缺少的季度可单独提交。求片通知会包含提交用户、影片名称、电影或剧集类型、申请季度、年份、TMDB ID 和详情链接。
@@ -127,7 +130,7 @@ docker compose down
 发布唯一的多架构 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.5.1 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.6.0 ./scripts/docker-buildx-push.sh
 ```
 
 镜像平台：

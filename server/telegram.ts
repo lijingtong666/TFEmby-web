@@ -1,15 +1,18 @@
 import crypto from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { AppSession } from "./auth.js";
 import { config } from "./config.js";
 import { externalServiceFetch } from "./proxy.js";
-import { fetchTmdbImage } from "./tmdb.js";
-import type { MediaRequest, RequestStatus } from "./types.js";
+import { createMediaRequest } from "./requests.js";
+import { fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
+import type { ChartItem, MediaRequest, RequestStatus } from "./types.js";
 
 type EmbyItem = Record<string, any>;
 
 type TelegramState = {
   seen: Record<string, { title: string; kind: string; type: string; eventAt: string; at: string }>;
+  conversations: Record<string, { action: "search" | "request"; at: string }>;
   telegramUpdateOffset: number | null;
   lastScanAt: string | null;
   lastWebhookAt: string | null;
@@ -38,6 +41,7 @@ type Metadata = {
 export type TgBotConfig = {
   telegramBotToken: string;
   telegramChatId: string;
+  telegramMenuUserIds: string;
   tmdbApiKey: string;
   tmdbLanguage: string;
   embyUrl: string;
@@ -132,6 +136,7 @@ function defaultBotConfig(): TgBotConfig {
   return {
     telegramBotToken: config.telegramBotToken,
     telegramChatId: config.telegramChatId,
+    telegramMenuUserIds: "",
     tmdbApiKey: config.tmdbApiKey,
     tmdbLanguage: "zh-CN",
     embyUrl: config.embyServerUrl,
@@ -154,6 +159,7 @@ function normalizeBotConfig(input: Partial<TgBotConfig>): TgBotConfig {
   return {
     telegramBotToken: String(input.telegramBotToken ?? fallback.telegramBotToken).trim(),
     telegramChatId: String(input.telegramChatId ?? fallback.telegramChatId).trim(),
+    telegramMenuUserIds: String(input.telegramMenuUserIds ?? fallback.telegramMenuUserIds).trim(),
     tmdbApiKey: String(input.tmdbApiKey ?? fallback.tmdbApiKey).trim(),
     tmdbLanguage: String(input.tmdbLanguage ?? fallback.tmdbLanguage).trim() || "zh-CN",
     embyUrl: cleanUrl(input.embyUrl ?? fallback.embyUrl),
@@ -174,6 +180,7 @@ function normalizeBotConfig(input: Partial<TgBotConfig>): TgBotConfig {
 function defaultState(): TelegramState {
   return {
     seen: {},
+    conversations: {},
     telegramUpdateOffset: null,
     lastScanAt: null,
     lastWebhookAt: null,
@@ -210,6 +217,12 @@ function saveState(state: TelegramState) {
 
 function parseChatIds(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function menuAllowed(settings: TgBotConfig, chatId: string, userId: string) {
+  const adminChats = parseChatIds(settings.telegramChatId);
+  const menuUsers = parseChatIds(settings.telegramMenuUserIds);
+  return adminChats.includes(chatId) || menuUsers.includes(userId) || menuUsers.includes(chatId);
 }
 
 function botConfigured(settings: TgBotConfig) {
@@ -255,7 +268,7 @@ async function telegramMultipart(settings: TgBotConfig, chatId: string, image: B
   if (!response.ok || !result.ok) throw new Error(result.description || `Telegram HTTP ${response.status}`);
 }
 
-async function sendBotText(settings: TgBotConfig, text: string, chatId?: string) {
+async function sendBotText(settings: TgBotConfig, text: string, chatId?: string, replyMarkup?: Record<string, unknown>) {
   requireValues(settings, ["telegramBotToken"]);
   const targets = chatId ? [chatId] : parseChatIds(settings.telegramChatId);
   if (!targets.length) throw new Error("缺少配置：telegramChatId");
@@ -264,10 +277,20 @@ async function sendBotText(settings: TgBotConfig, text: string, chatId?: string)
       chat_id: target,
       text,
       parse_mode: "HTML",
-      disable_web_page_preview: "false"
+      disable_web_page_preview: "false",
+      ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {})
     });
   }
   return targets.length;
+}
+
+async function answerCallback(settings: TgBotConfig, callbackQueryId: string, text = "", showAlert = false) {
+  if (!callbackQueryId) return;
+  await telegramForm(settings, "answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text } : {}),
+    ...(showAlert ? { show_alert: "true" } : {})
+  });
 }
 
 async function sendTelegram(message: string, photo?: string) {
@@ -614,8 +637,8 @@ async function sendLibraryNotification(settings: TgBotConfig, item: EmbyItem, me
   }
 }
 
-async function getLatestItems(settings: TgBotConfig) {
-  const params: Record<string, string | number> = { IncludeItemTypes: settings.includeTypes.join(","), Fields: embyFields, EnableImages: "true", Limit: settings.latestLimit };
+async function getLatestItems(settings: TgBotConfig, limit = settings.latestLimit) {
+  const params: Record<string, string | number> = { IncludeItemTypes: settings.includeTypes.join(","), Fields: embyFields, EnableImages: "true", Limit: limit };
   if (settings.embyUserId) return embyGet(settings, `Users/${encodeURIComponent(settings.embyUserId)}/Items/Latest`, params);
   return embyGet(settings, "Items/Latest", params);
 }
@@ -784,10 +807,323 @@ function schedulePoll(delay = 0) {
   }, delay);
 }
 
-function recentMessage(state: TelegramState) {
-  const rows = Object.values(state.seen).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10);
-  if (!rows.length) return "📚 <b>最近入库</b>\n\n暂无入库记录。";
-  return ["📚 <b>最近入库</b>", "", ...rows.flatMap((row, index) => [`${index + 1}. ${row.type === "Movie" ? "🎬" : "📺"} <b>${escapeHtml(row.title)}</b>`, `   ${escapeHtml(row.kind)} | ${escapeHtml(row.eventAt)}`])].join("\n");
+function itemRows(data: any): EmbyItem[] {
+  return Array.isArray(data) ? data : Array.isArray(data?.Items) ? data.Items : [];
+}
+
+function lookupTitle(value: unknown) {
+  return String(value || "").toLowerCase().replace(/[：:·'".,，。！？!?()\[\]【】\s-]/g, "").trim();
+}
+
+function tmdbProviderId(item: EmbyItem) {
+  return String(item.ProviderIds?.Tmdb || item.ProviderIds?.TMDb || item.ProviderIds?.tmdb || "");
+}
+
+async function searchLibraryForBot(settings: TgBotConfig, query: string) {
+  const common = { Recursive: "true", IncludeItemTypes: "Movie,Series", Fields: embyFields, EnableImages: "true", Limit: 20 };
+  if (/^\d+$/.test(query)) {
+    return itemRows(await embyGet(settings, "Items", { ...common, AnyProviderIdEquals: `tmdb.${query}` }));
+  }
+  return itemRows(await embyGet(settings, "Items", { ...common, SearchTerm: query }));
+}
+
+async function findLibraryItemForBot(settings: TgBotConfig, item: ChartItem) {
+  const tmdbId = item.externalIds.tmdb || "";
+  const includeType = item.mediaType === "movie" ? "Movie" : "Series";
+  const common = { Recursive: "true", IncludeItemTypes: includeType, Fields: embyFields, EnableImages: "true", Limit: 25 };
+  const exact = tmdbId
+    ? itemRows(await embyGet(settings, "Items", { ...common, AnyProviderIdEquals: `tmdb.${tmdbId}` }).catch(() => ({ Items: [] })))
+    : [];
+  const named = itemRows(await embyGet(settings, "Items", { ...common, SearchTerm: item.title }).catch(() => ({ Items: [] })));
+  const candidates = [...exact, ...named.filter((candidate) => !exact.some((existing) => existing.Id === candidate.Id))];
+  return candidates.find((candidate) => {
+    const sameTmdb = tmdbId && tmdbProviderId(candidate) === tmdbId;
+    const sameTitle = [candidate.Name, candidate.OriginalTitle].some((title) => lookupTitle(title) === lookupTitle(item.title));
+    const sameYear = !item.year || !candidate.ProductionYear || Number(candidate.ProductionYear) === item.year;
+    return Boolean(sameTmdb || (sameTitle && sameYear));
+  }) || null;
+}
+
+async function librarySeasonNumbersForBot(settings: TgBotConfig, item: ChartItem) {
+  const series = await findLibraryItemForBot(settings, item);
+  if (!series?.Id) return new Set<number>();
+  const seasonData = await embyGet(settings, "Items", { ParentId: series.Id, IncludeItemTypes: "Season", Fields: "IndexNumber", Limit: 100 });
+  const seasons = new Set(itemRows(seasonData).map((season) => Number(season.IndexNumber)).filter((value) => Number.isInteger(value) && value > 0));
+  if (seasons.size) return seasons;
+  const episodeData = await embyGet(settings, "Items", { ParentId: series.Id, Recursive: "true", IncludeItemTypes: "Episode", Fields: "ParentIndexNumber", Limit: 10000 });
+  return new Set(itemRows(episodeData).map((episode) => Number(episode.ParentIndexNumber)).filter((value) => Number.isInteger(value) && value > 0));
+}
+
+function episodeRangeChinese(episodes: EmbyItem[]) {
+  const seasons = new Map<number, number[]>();
+  for (const episode of episodes) {
+    const season = number(episode.ParentIndexNumber);
+    const index = number(episode.IndexNumber);
+    if (season && index) seasons.set(season, [...(seasons.get(season) || []), index]);
+  }
+  if (!seasons.size) return `本次入库 ${episodes.length} 集`;
+  return [...seasons.entries()].sort(([left], [right]) => left - right).map(([season, indexes]) => {
+    const values = [...new Set(indexes)].sort((left, right) => left - right);
+    const ranges: string[] = [];
+    let start = values[0];
+    let end = values[0];
+    for (const current of values.slice(1)) {
+      if (current === end + 1) {
+        end = current;
+        continue;
+      }
+      ranges.push(start === end ? `第${start}集` : `第${start}集-第${end}集`);
+      start = current;
+      end = current;
+    }
+    ranges.push(start === end ? `第${start}集` : `第${start}集-第${end}集`);
+    return `第${season}季 ${ranges.join("、")}`;
+  }).join(" · ");
+}
+
+async function recentLibraryMessage(settings: TgBotConfig) {
+  const latest = itemRows(await getLatestItems(settings, 80));
+  const episodeSeriesIds = new Set(latest.filter((item) => item.Type === "Episode" && item.SeriesId).map((item) => String(item.SeriesId)));
+  const groups = new Map<string, EmbyItem[]>();
+  const ordered: Array<{ type: "item"; item: EmbyItem } | { type: "episodes"; key: string; first: EmbyItem }> = [];
+  for (const item of latest) {
+    if (item.Type === "Series" && episodeSeriesIds.has(String(item.Id))) continue;
+    if (item.Type !== "Episode") {
+      ordered.push({ type: "item", item });
+      continue;
+    }
+    const key = `${item.SeriesId || item.SeriesName || item.Id}:${dateKey(item.DateCreated)}`;
+    if (!groups.has(key)) ordered.push({ type: "episodes", key, first: item });
+    groups.set(key, [...(groups.get(key) || []), item]);
+  }
+  const rows = ordered.slice(0, 20);
+  if (!rows.length) return "📚 <b>最近入库 20 条</b>\n\n暂无入库记录。";
+  return ["📚 <b>最近入库 20 条</b>", "", ...rows.flatMap((row, index) => {
+    if (row.type === "episodes") {
+      const episodes = groups.get(row.key) || [row.first];
+      return [`${index + 1}. 📺 <b>${escapeHtml(row.first.SeriesName || row.first.Name || "未命名剧集")}</b>`, `   ${escapeHtml(episodeRangeChinese(episodes))} | ${escapeHtml(formatEventDateTime(row.first.DateCreated))}`];
+    }
+    return [`${index + 1}. ${row.item.Type === "Movie" ? "🎬" : "📺"} <b>${escapeHtml(row.item.Name || "未命名")}</b>`, `   ${escapeHtml(mediaKind(row.item))} | ${escapeHtml(formatEventDateTime(row.item.DateCreated))}`];
+  })].join("\n");
+}
+
+function menuText() {
+  return [
+    "🤖 <b>TFEmby Web 机器人</b>",
+    "",
+    "/recent - 查看最近入库 20 条",
+    "/search - 搜索 Emby 片库",
+    "/request - 按片名或 TMDB ID 求片",
+    "/cancel - 取消当前操作",
+    "/help - 查看菜单"
+  ].join("\n");
+}
+
+function menuKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "📚 最近入库 20 条", callback_data: "menu:recent" }],
+      [{ text: "🔎 搜索片库", callback_data: "menu:search" }, { text: "➕ 用户求片", callback_data: "menu:request" }]
+    ]
+  };
+}
+
+function telegramUserName(user: Record<string, any>) {
+  if (user.username) return `@${user.username}`;
+  return [user.first_name, user.last_name].map((value) => String(value || "").trim()).filter(Boolean).join(" ") || `Telegram ${user.id || "用户"}`;
+}
+
+function telegramSession(chatId: string, user: Record<string, any>): AppSession {
+  return {
+    token: "telegram",
+    userId: `telegram:${user.id || chatId}`,
+    username: telegramUserName(user),
+    role: "user"
+  };
+}
+
+function conversationKey(chatId: string, user: Record<string, any>) {
+  return `${chatId}:${user.id || chatId}`;
+}
+
+async function tmdbRequestCandidates(query: string) {
+  if (!/^\d+$/.test(query)) return (await searchTmdb(query)).slice(0, 8);
+  const results = await Promise.allSettled([fetchTmdbItem(query, "movie"), fetchTmdbItem(query, "tv")]);
+  const candidates = results.filter((result): result is PromiseFulfilledResult<ChartItem> => result.status === "fulfilled").map((result) => result.value);
+  if (!candidates.length) {
+    const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected" && Number(result.reason?.status) !== 404);
+    if (failure) throw failure.reason;
+  }
+  return candidates;
+}
+
+async function sendRequestCandidates(settings: TgBotConfig, chatId: string, query: string) {
+  const candidates = (await tmdbRequestCandidates(query)).filter((item) => item.externalIds.tmdb);
+  if (!candidates.length) {
+    await sendBotText(settings, `未在 TMDB 找到“${escapeHtml(query)}”。`, chatId);
+    return;
+  }
+  const keyboard = candidates.map((item) => [{
+    text: `${item.mediaType === "tv" ? "📺" : "🎬"} ${item.title.slice(0, 32)}${item.year ? ` (${item.year})` : ""}`,
+    callback_data: `req:item:${item.mediaType}:${item.externalIds.tmdb}`
+  }]);
+  await sendBotText(settings, "请选择要申请的影片：", chatId, { inline_keyboard: keyboard });
+}
+
+async function sendLibrarySearch(settings: TgBotConfig, chatId: string, query: string) {
+  const items = (await searchLibraryForBot(settings, query)).slice(0, 10);
+  if (!items.length) {
+    await sendBotText(settings, `❌ <b>库中未找到</b>\n\n${escapeHtml(query)}`, chatId);
+    return;
+  }
+  await sendBotText(settings, [
+    `✅ <b>库中找到 ${items.length} 条</b>`,
+    "",
+    ...items.flatMap((item, index) => [
+      `${index + 1}. ${item.Type === "Movie" ? "🎬" : "📺"} <b>${escapeHtml(item.Name || "未命名")}</b>${item.ProductionYear ? ` (${escapeHtml(item.ProductionYear)})` : ""}`,
+      `   ${item.Type === "Movie" ? "电影" : "剧集"}${tmdbProviderId(item) ? ` | TMDB ${escapeHtml(tmdbProviderId(item))}` : ""}`
+    ])
+  ].join("\n"), chatId);
+}
+
+async function submitTelegramRequest(settings: TgBotConfig, chatId: string, user: Record<string, any>, item: ChartItem, seasonNumber?: number) {
+  if (item.mediaType === "movie") {
+    const existing = await findLibraryItemForBot(settings, item);
+    if (existing) {
+      await sendBotText(settings, `✅ 《${escapeHtml(item.title)}》已在媒体库中。`, chatId);
+      return;
+    }
+  }
+  let season: { seasonNumber: number; seasonName: string } | undefined;
+  if (item.mediaType === "tv") {
+    if (!seasonNumber) throw new Error("请选择要申请的季度");
+    const details = await fetchTmdbSeasons(item.externalIds.tmdb || "");
+    const selected = details.seasons.find((candidate) => candidate.seasonNumber === seasonNumber);
+    if (!selected) throw new Error("TMDB 中未找到该季度");
+    const existingSeasons = await librarySeasonNumbersForBot(settings, details.item);
+    if (existingSeasons.has(seasonNumber)) {
+      await sendBotText(settings, `✅ 《${escapeHtml(item.title)}》第 ${seasonNumber} 季已在媒体库中。`, chatId);
+      return;
+    }
+    item = details.item;
+    season = { seasonNumber, seasonName: selected.name };
+  }
+  const created = await createMediaRequest(telegramSession(chatId, user), item, season);
+  await notifyRequestCreated(created).catch((error: Error) => addLog(`Telegram 求片通知失败：${error.message}`));
+  await sendBotText(settings, `📨 已提交《${escapeHtml(item.title)}》${seasonNumber ? `第 ${seasonNumber} 季` : ""}。\nTMDB ID：${escapeHtml(item.externalIds.tmdb)}`, chatId);
+}
+
+async function showTvSeasons(settings: TgBotConfig, chatId: string, tmdbId: string) {
+  const details = await fetchTmdbSeasons(tmdbId);
+  const existing = await librarySeasonNumbersForBot(settings, details.item);
+  const keyboard = details.seasons.map((season) => [{
+    text: existing.has(season.seasonNumber) ? `✅ 第${season.seasonNumber}季 · 库中存在` : `➕ 第${season.seasonNumber}季 · 申请`,
+    callback_data: existing.has(season.seasonNumber) ? `req:exists:${tmdbId}:${season.seasonNumber}` : `req:season:${tmdbId}:${season.seasonNumber}`
+  }]);
+  if (!keyboard.length) {
+    await sendBotText(settings, `《${escapeHtml(details.item.title)}》暂无可选择的季度。`, chatId);
+    return;
+  }
+  await sendBotText(settings, `📺 <b>${escapeHtml(details.item.title)}</b>\n请选择季度：`, chatId, { inline_keyboard: keyboard });
+}
+
+async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState, message: Record<string, any>) {
+  const chatId = String(message.chat?.id || "");
+  const user = message.from || {};
+  const key = conversationKey(chatId, user);
+  const text = String(message.text || "").trim();
+  if (!text) return;
+  const firstToken = text.split(/\s+/)[0];
+  const command = firstToken.startsWith("/") ? firstToken.split("@")[0].toLowerCase() : "";
+  const argument = command ? text.slice(firstToken.length).trim() : "";
+
+  if (["/start", "/help"].includes(command)) {
+    delete state.conversations[key];
+    await sendBotText(settings, menuText(), chatId, menuKeyboard());
+    return;
+  }
+  if (["/recent", "/latest"].includes(command)) {
+    delete state.conversations[key];
+    await sendBotText(settings, await recentLibraryMessage(settings), chatId);
+    return;
+  }
+  if (command === "/search") {
+    delete state.conversations[key];
+    if (argument) await sendLibrarySearch(settings, chatId, argument);
+    else {
+      state.conversations[key] = { action: "search", at: nowIso() };
+      await sendBotText(settings, "请输入要查询的影片名称或 TMDB ID：", chatId);
+    }
+    return;
+  }
+  if (["/request", "/wish"].includes(command)) {
+    delete state.conversations[key];
+    if (argument) await sendRequestCandidates(settings, chatId, argument);
+    else {
+      state.conversations[key] = { action: "request", at: nowIso() };
+      await sendBotText(settings, "请输入影片名称或 TMDB ID：", chatId);
+    }
+    return;
+  }
+  if (command === "/cancel") {
+    delete state.conversations[key];
+    await sendBotText(settings, "已取消当前操作。", chatId);
+    return;
+  }
+  if (command) {
+    delete state.conversations[key];
+    await sendBotText(settings, menuText(), chatId, menuKeyboard());
+    return;
+  }
+
+  const conversation = state.conversations[key];
+  if (!conversation) return;
+  delete state.conversations[key];
+  if (conversation.action === "search") await sendLibrarySearch(settings, chatId, text);
+  else await sendRequestCandidates(settings, chatId, text);
+}
+
+async function handleTelegramCallback(settings: TgBotConfig, state: TelegramState, callback: Record<string, any>) {
+  const callbackId = String(callback.id || "");
+  const chatId = String(callback.message?.chat?.id || "");
+  const user = callback.from || {};
+  const data = String(callback.data || "");
+  const key = conversationKey(chatId, user);
+
+  if (data === "menu:recent") {
+    await answerCallback(settings, callbackId, "正在读取最近入库");
+    await sendBotText(settings, await recentLibraryMessage(settings), chatId);
+    return;
+  }
+  if (data === "menu:search" || data === "menu:request") {
+    await answerCallback(settings, callbackId);
+    const action = data === "menu:search" ? "search" : "request";
+    state.conversations[key] = { action, at: nowIso() };
+    await sendBotText(settings, action === "search" ? "请输入要查询的影片名称或 TMDB ID：" : "请输入影片名称或 TMDB ID：", chatId);
+    return;
+  }
+
+  const parts = data.split(":");
+  if (parts[0] !== "req") return;
+  if (parts[1] === "exists") {
+    await answerCallback(settings, callbackId, `第 ${parts[3]} 季已在库中`, true);
+    return;
+  }
+  if (parts[1] === "item") {
+    const mediaType = parts[2] === "tv" ? "tv" : "movie";
+    const tmdbId = parts[3];
+    await answerCallback(settings, callbackId, mediaType === "tv" ? "正在读取季度" : "正在提交申请");
+    if (mediaType === "tv") await showTvSeasons(settings, chatId, tmdbId);
+    else await submitTelegramRequest(settings, chatId, user, await fetchTmdbItem(tmdbId, "movie"));
+    return;
+  }
+  if (parts[1] === "season") {
+    const tmdbId = parts[2];
+    const seasonNumber = Number(parts[3]);
+    await answerCallback(settings, callbackId, "正在提交申请");
+    const details = await fetchTmdbSeasons(tmdbId);
+    await submitTelegramRequest(settings, chatId, user, details.item, seasonNumber);
+  }
 }
 
 async function telegramMenuLoop() {
@@ -806,7 +1142,14 @@ async function telegramMenuLoop() {
         await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/setMyCommands`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ commands: [{ command: "recent", description: "查看最近入库" }, { command: "help", description: "查看使用说明" }] })
+          body: JSON.stringify({ commands: [
+            { command: "start", description: "开始使用机器人" },
+            { command: "recent", description: "查看最近入库 20 条" },
+            { command: "search", description: "搜索库中影片是否存在" },
+            { command: "request", description: "输入片名或 TMDB ID 求片" },
+            { command: "cancel", description: "取消当前操作" },
+            { command: "help", description: "查看使用说明" }
+          ] })
         });
         lastToken = settings.telegramBotToken;
       }
@@ -814,16 +1157,28 @@ async function telegramMenuLoop() {
       const updates = await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/getUpdates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ timeout: 20, offset: state.telegramUpdateOffset || undefined, allowed_updates: ["message"] })
+        body: JSON.stringify({ timeout: 20, offset: state.telegramUpdateOffset || undefined, allowed_updates: ["message", "callback_query"] })
       });
       for (const update of updates.result || []) {
         if (typeof update.update_id === "number") state.telegramUpdateOffset = update.update_id + 1;
-        const message = update.message || {};
-        const chatId = String(message.chat?.id || "");
-        if (!parseChatIds(settings.telegramChatId).includes(chatId)) continue;
-        const command = String(message.text || "").split("@")[0].split(" ")[0].toLowerCase();
-        if (["/recent", "/latest"].includes(command)) await sendBotText(settings, recentMessage(state), chatId);
-        if (["/start", "/help"].includes(command)) await sendBotText(settings, "🤖 <b>TFEmby Web 通知</b>\n\n/recent - 查看最近入库\n/help - 查看使用说明", chatId);
+        const chatId = String(update.message?.chat?.id || update.callback_query?.message?.chat?.id || "");
+        const userId = String(update.message?.from?.id || update.callback_query?.from?.id || "");
+        if (!menuAllowed(settings, chatId, userId)) {
+          if (update.callback_query?.id) {
+            await answerCallback(settings, String(update.callback_query.id), "你没有使用机器人菜单的权限", true).catch(() => undefined);
+          } else if (["/start", "/help"].includes(String(update.message?.text || "").split(/\s+/)[0].split("@")[0].toLowerCase())) {
+            await sendBotText(settings, `你的 Telegram 用户 ID：<code>${escapeHtml(userId || chatId)}</code>\n请联系管理员将该 ID 加入“菜单用户 ID”。`, chatId).catch(() => undefined);
+          }
+          continue;
+        }
+        try {
+          if (update.callback_query) await handleTelegramCallback(settings, state, update.callback_query);
+          else if (update.message) await handleTelegramMessage(settings, state, update.message);
+        } catch (error) {
+          if (update.callback_query?.id) await answerCallback(settings, String(update.callback_query.id), (error as Error).message.slice(0, 180), true).catch(() => undefined);
+          await sendBotText(settings, `操作失败：${escapeHtml((error as Error).message)}`, chatId).catch(() => undefined);
+          addLog(`Telegram 菜单操作失败：${(error as Error).message}`);
+        }
       }
       await saveState(state);
     } catch (error) {

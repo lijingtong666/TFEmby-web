@@ -412,7 +412,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.5.1"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.0"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -819,6 +819,7 @@ function RequestView({ session }: { session: UserSession | null }) {
 const defaultBotConfig: TgBotConfig = {
   telegramBotToken: "",
   telegramChatId: "",
+  telegramMenuUserIds: "",
   tmdbApiKey: "",
   tmdbLanguage: "zh-CN",
   embyUrl: "",
@@ -1000,6 +1001,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
         <div className="settingsGrid">
           <SecretSettingField label="Bot Token" value={draft.web.telegramBotToken} onChange={(value) => updateWeb("telegramBotToken", value)} />
           <SettingField label="Chat ID" value={draft.web.telegramChatId} onChange={(value) => updateWeb("telegramChatId", value)} placeholder="多个 ID 使用英文逗号分隔" />
+          <SettingField label="菜单用户 ID" value={bot.telegramMenuUserIds} onChange={(value) => updateBot("telegramMenuUserIds", value)} placeholder="允许使用机器人菜单的 Telegram 用户 ID" />
           <SettingField label="Telegram API 地址" value={draft.web.telegramApiBase} onChange={(value) => updateWeb("telegramApiBase", value)} placeholder="https://api.telegram.org" />
         </div>
         <div className="settingsTestRow">
