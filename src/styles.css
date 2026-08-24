@@ -1648,6 +1648,286 @@ h2 {
   }
 }
 
+.settingsSection {
+  padding-top: 4px;
+}
+
+.settingsForm {
+  display: grid;
+  gap: 0;
+}
+
+.settingsStatus,
+.settingsSaveBar,
+.settingsGroupHead,
+.settingsTestRow,
+.settingsChecks {
+  display: flex;
+  align-items: center;
+}
+
+.settingsStatus {
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 20px;
+}
+
+.settingsStatus > div {
+  display: grid;
+  gap: 4px;
+}
+
+.settingsStatus strong {
+  font-size: 19px;
+}
+
+.settingsStatus > div span,
+.settingsGroupHead span,
+.settingsSaveBar > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.connectionPill {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.connectionPill > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a8adb6;
+}
+
+.connectionPill.online {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 25%, var(--line));
+  background: color-mix(in srgb, var(--green) 7%, var(--surface));
+}
+
+.connectionPill.online > span {
+  background: var(--green);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 13%, transparent);
+}
+
+.settingsGroup {
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+}
+
+.settingsGroupHead {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 17px;
+}
+
+.settingsGroupHead h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.settingsField {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.settingsField > span,
+.settingsChecks > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settingsField > input,
+.secretField {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.settingsField > input,
+.secretField input {
+  padding: 0 13px;
+  color: var(--text);
+}
+
+.settingsField > input:focus,
+.secretField:focus-within {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 8%, transparent);
+  outline: none;
+}
+
+.secretField {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  overflow: hidden;
+}
+
+.secretField input {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+}
+
+.secretField button {
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--muted);
+}
+
+.secretField button:hover {
+  color: var(--brand-strong);
+}
+
+.settingsTestRow {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 15px;
+}
+
+.settingsSwitches {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 17px;
+}
+
+.settingsToggle {
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--surface-soft);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.settingsToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggleTrack {
+  width: 38px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--muted) 28%, var(--surface));
+  transition: background 160ms ease;
+}
+
+.toggleTrack > span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(20, 27, 38, 0.2);
+  transition: transform 160ms ease;
+}
+
+.settingsToggle input:checked + .toggleTrack {
+  background: var(--brand);
+}
+
+.settingsToggle input:checked + .toggleTrack > span {
+  transform: translateX(16px);
+}
+
+.settingsToggle:focus-within {
+  outline: 3px solid color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.settingsChecks {
+  flex-wrap: wrap;
+  gap: 9px 16px;
+  margin-top: 16px;
+}
+
+.settingsChecks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settingsChecks input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--brand);
+}
+
+.settingsSaveBar {
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.settingsSave {
+  width: auto;
+  min-height: 44px;
+  padding: 0 17px;
+}
+
+@media (max-width: 920px) {
+  .settingsSwitches {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .settingsStatus,
+  .settingsGroupHead,
+  .settingsSaveBar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settingsGrid,
+  .settingsSwitches {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settingsSave {
+    width: 100%;
+  }
+}
+
 .telegramCard {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) auto;

@@ -4,58 +4,41 @@ Emby 影视库 Web UI，支持片库搜索、继续观看、播放历史、最�
 
 ## NAS 部署
 
-TFEmby Web 的主要程序文件都随 Docker 镜像发布，用户只需要部署容器。首次访问网页时创建管理员账户；普通用户可以直接用 Emby 账户登录，登录成功后会自动关联 Emby。
+TFEmby Web 的主要程序文件和默认配置都随 Docker 镜像发布，用户只需要部署容器，不需要创建或编辑 `.env`。首次访问网页时创建管理员账户，再进入“管理后台”配置 Emby、TMDB、豆瓣、Telegram 和 TG 机器人；普通用户之后可以直接使用 Emby 账户登录并自动关联。
 
 镜像 tag 默认使用多架构 `latest`，Docker 会根据 NAS CPU 自动拉取 `amd64` 或 `arm64`。
 
-### 准备环境变量
+### Web UI 配置
 
-复制一份环境变量文件：
+管理员账户、系统设置和 Emby 关联信息都保存在容器的 `/data` 数据卷里。管理后台可以设置：
 
-```bash
-cp .env.example .env
-```
+- 项目名称和 Emby 服务器地址
+- TMDB API Key、Bearer Token、语言和豆瓣数据源
+- Telegram Bot Token、Chat ID 和 API 地址
+- Emby API Key、Webhook 密钥、监听事件、扫描周期和媒体类型
+- 封面、豆瓣兜底、首次扫描通知和代理
 
-编辑 `.env`：
+`Emby 服务器地址` 建议填写 NAS 局域网 IP 或 Emby 容器所在主机 IP，不要在 Docker 桥接网络里使用 `127.0.0.1` 指向宿主机。
 
-```bash
-EMBY_SERVER_URL=http://你的-emby-ip:8096
-DATA_DIR=/data
-TMDB_API_KEY=
-TMDB_BEARER_TOKEN=
-DOUBAN_API_BASE=
-TELEGRAM_BOT_TOKEN=从-BotFather-获取
-TELEGRAM_CHAT_ID=接收通知的会话ID
-TGBOT_PORT=8099
-PUBLIC_TGBOT_URL=http://你的-NAS-IP:8099
-TGBOT_WEBHOOK_SECRET=
-EMBY_API_KEY=
-EMBY_USER_ID=
-WEB_PORT=8787
-IMAGE=xiaotong378/tfembyweb:latest
-```
+求片功能需要在管理后台配置 TMDB API Key 或 Bearer Token。用户从 TMDB 搜索电影或剧集后提交申请；管理员可查看海报、申请用户和 TMDB ID，并将状态更新为待处理、已接收、已入库或已拒绝。申请记录保存在 `/data/requests.json`。
 
-`EMBY_SERVER_URL` 建议填写 NAS 局域网 IP 或 Emby 容器所在主机 IP，不要在 Docker 桥接网络里使用 `127.0.0.1` 指向宿主机。管理员账户和 Emby 关联信息保存在容器的 `/data` 数据卷里。
-
-求片功能需要配置 `TMDB_API_KEY` 或 `TMDB_BEARER_TOKEN`。用户从 TMDB 搜索电影或剧集后提交申请；管理员可在“管理后台”查看海报、申请用户和 TMDB ID，并将状态更新为待处理、已接收、已入库或已拒绝。申请记录保存在 `/data/requests.json`。
-
-全网热榜优先使用榜单中的 TMDB 海报。缺少海报时会先按片名和年份从 TMDB 补全，再从 `DOUBAN_API_BASE/search` 或豆瓣电影搜索接口兜底；豆瓣图片由 TFEmby Web 代理并缓存，避免浏览器防盗链导致海报无法显示。
+全网热榜优先使用榜单中的 TMDB 海报。缺少海报时会先按片名和年份从 TMDB 补全，再从管理后台设置的豆瓣 API 或豆瓣电影搜索接口兜底；豆瓣图片由 TFEmby Web 代理并缓存，避免浏览器防盗链导致海报无法显示。
 
 ### Telegram 通知
 
-部署会同时使用 `xiaotong378/tgbot:1.1.5`。该镜像支持 `amd64` 和 `arm64`，负责 Emby Webhook、备用入库扫描、TMDB/豆瓣补全、封面和 Telegram 入库通知。TFEmby Web 使用相同的 `TELEGRAM_BOT_TOKEN` 与 `TELEGRAM_CHAT_ID` 发送：
+部署会同时使用 `xiaotong378/tgbot:1.1.5`。该镜像支持 `amd64` 和 `arm64`，负责 Emby Webhook、备用入库扫描、TMDB/豆瓣补全、封面和 Telegram 入库通知。管理后台会把共用配置同步给机器人，用于发送：
 
 - 用户提交新的求片申请：通知中包含 Emby 用户名、影片名称、电影/剧集类型、年份、TMDB ID 和详情链接
 - 管理员更新申请状态
 - 机器人检测到 Emby 新入库电影或剧集
 
-机器人配置页：
+机器人原始配置页仍可通过以下地址访问，但日常设置直接在 TFEmby Web 管理后台完成：
 
 ```text
 http://NAS-IP:8099
 ```
 
-管理后台可查看机器人在线状态、测试 TG 通知、启动或停止备用扫描以及立即扫描。`8099` 配置页没有独立登录保护，只建议在 NAS 局域网访问，不要直接暴露到公网。
+管理后台可保存机器人全部设置、执行连接测试、查看在线状态、启动或停止备用扫描以及立即扫描。`8099` 配置页没有独立登录保护，只建议在 NAS 局域网访问，不要直接暴露到公网。
 
 ### 方式一：Docker
 
@@ -69,8 +52,6 @@ docker run -d \
   --restart unless-stopped \
   -p 8099:8099 \
   -v tfemby-tgbot-data:/app/data \
-  --env-file .env \
-  -e PUBLIC_BASE_URL=http://你的-NAS-IP:8099 \
   xiaotong378/tgbot:1.1.5
 ```
 
@@ -83,36 +64,11 @@ docker run -d \
   --restart unless-stopped \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
-  --env-file .env \
   -e TGBOT_URL=http://tfemby-tgbot:8099 \
   xiaotong378/tfembyweb:latest
 ```
 
-在 `arm64` NAS 上强制使用对应架构：
-
-```bash
-docker run -d \
-  --name tfemby-web \
-  --platform linux/arm64 \
-  --restart unless-stopped \
-  -p 8787:8787 \
-  -v tfemby-web-data:/data \
-  --env-file .env \
-  xiaotong378/tfembyweb:latest
-```
-
-在 `amd64` NAS 上强制使用对应架构：
-
-```bash
-docker run -d \
-  --name tfemby-web \
-  --platform linux/amd64 \
-  --restart unless-stopped \
-  -p 8787:8787 \
-  -v tfemby-web-data:/data \
-  --env-file .env \
-  xiaotong378/tfembyweb:latest
-```
+`latest` 是多架构镜像，Docker 会自动选择 `linux/amd64` 或 `linux/arm64`。
 
 查看日志：
 
@@ -154,23 +110,21 @@ docker compose -f docker-compose.nas.yml down
 http://NAS-IP:8787
 ```
 
-如果 `.env` 中修改了 `WEB_PORT`，访问端口跟随 `WEB_PORT`。
-
 首次打开后：
 
 ```text
-创建 TFEmby Web 管理员 -> 普通用户使用 Emby 账号登录 -> 自动关联 Emby
+创建 TFEmby Web 管理员 -> 管理后台完成系统设置 -> 普通用户使用 Emby 账号登录 -> 自动关联 Emby
 ```
 
 本地管理员首次登录后，可在左侧账户区域关联自己的 Emby 账户。关联后，“管理后台”会显示 Emby 最近入库的电影和剧集海报。
 
-机器人首次启动后，访问 `http://NAS-IP:8099` 检查 Telegram 与 Emby 配置。使用备用轮询时点击“启动备用轮询”；使用 Emby Webhook 时，将 Emby 通知地址设置为：
+机器人首次启动后，在 TFEmby Web 管理后台检查 Telegram 与 Emby 配置。使用备用轮询时点击“启动扫描”；使用 Emby Webhook 时，将 Emby 通知地址设置为：
 
 ```text
 http://NAS-IP:8099/webhook/emby
 ```
 
-如果设置了 `TGBOT_WEBHOOK_SECRET`：
+如果在管理后台设置了 Webhook 密钥：
 
 ```text
 http://NAS-IP:8099/webhook/emby?token=你的密钥
@@ -188,7 +142,6 @@ docker run -d \
   --restart unless-stopped \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
-  --env-file .env \
   xiaotong378/tfembyweb:latest
 ```
 
@@ -211,7 +164,7 @@ linux/arm64
 推送包含两个架构的 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.1.1 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.2.0 ./scripts/docker-buildx-push.sh
 ```
 
 生成的 tag：

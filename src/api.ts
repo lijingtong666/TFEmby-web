@@ -1,4 +1,4 @@
-import type { AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, UserSession } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, UserSession } from "./types";
 
 const sessionKey = "tfemby-web-session";
 
@@ -101,6 +101,14 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ status })
     }),
+  adminSettings: (session: UserSession) => request<AdminSettings>("/api/admin/settings", session),
+  saveAdminSettings: (session: UserSession, settings: AdminSettings) =>
+    request<AdminSettings>("/api/admin/settings", session, {
+      method: "PUT",
+      body: JSON.stringify({ web: settings.web, bot: settings.bot })
+    }),
+  testAdminSetting: (session: UserSession, target: "emby" | "tmdb" | "douban" | "telegram" | "all") =>
+    request<{ messages?: string[] }>(`/api/admin/settings/test/${target}`, session, { method: "POST" }),
   telegramStatus: (session: UserSession) => request<TelegramIntegration>("/api/integrations/telegram", session),
   telegramTest: (session: UserSession) => request<{ configured: boolean; sent: number }>("/api/integrations/telegram/test", session, { method: "POST" }),
   telegramAction: (session: UserSession, action: "start" | "stop" | "scan") =>

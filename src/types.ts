@@ -73,6 +73,49 @@ export type AppConfig = {
   requiresSetup: boolean;
 };
 
+export type WebSettings = {
+  appName: string;
+  embyServerUrl: string;
+  tmdbApiKey: string;
+  tmdbBearerToken: string;
+  doubanApiBase: string;
+  telegramBotToken: string;
+  telegramChatId: string;
+  telegramApiBase: string;
+  tgBotUrl: string;
+  publicTgBotUrl: string;
+  tgBotPort: number;
+};
+
+export type TgBotConfig = {
+  telegramBotToken: string;
+  telegramChatId: string;
+  tmdbApiKey: string;
+  tmdbLanguage: string;
+  embyUrl: string;
+  embyApiKey: string;
+  embyUserId: string;
+  publicBaseUrl: string;
+  webhookSecret: string;
+  doubanFallbackEnabled: boolean;
+  enableCovers: boolean;
+  overviewMaxLength: number;
+  monitoredEvents: string;
+  includeTypes: string[];
+  pollIntervalSeconds: number;
+  latestLimit: number;
+  notifyFirstRun: boolean;
+  proxyEnabled: boolean;
+  proxyUrl: string;
+};
+
+export type AdminSettings = {
+  web: WebSettings;
+  bot: TgBotConfig | null;
+  sidecarReachable: boolean;
+  warning?: string;
+};
+
 export type TelegramIntegration = {
   directConfigured: boolean;
   sidecarReachable: boolean;

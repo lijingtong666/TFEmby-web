@@ -3,7 +3,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { authStatus, linkEmbyUser, loginLocal, loginWithEmby, sessionFromAuthHeader, setupAdmin } from "./auth.js";
-import { config } from "./config.js";
+import { config, getWebSettings, loadRuntimeSettings, saveRuntimeSettings } from "./config.js";
 import { fetchDoubanChart } from "./douban.js";
 import {
   annotateChartItems,
@@ -20,12 +20,16 @@ import { enrichChartPosters } from "./posters.js";
 import { fetchTmdbChart, fetchTmdbItem, searchTmdb } from "./tmdb.js";
 import {
   controlTgBot,
+  getTgBotConfig,
   getTelegramIntegrationStatus,
   notifyRequestCreated,
   notifyRequestStatus,
+  saveTgBotConfig,
   sendTelegramTest,
+  testTgBot,
   telegramConfigured
 } from "./telegram.js";
+import type { TgBotConfig } from "./telegram.js";
 import type { RequestStatus } from "./types.js";
 
 const app = express();
@@ -96,6 +100,52 @@ app.get("/api/config", asyncRoute(async (_req, res) => {
     telegramEnabled: telegramConfigured(),
     requiresSetup: status.requiresSetup
   });
+}));
+
+app.get("/api/admin/settings", asyncRoute(async (req, res) => {
+  requireAdmin(req);
+  const bot = await getTgBotConfig().catch(() => null);
+  res.json({
+    web: getWebSettings(),
+    bot,
+    sidecarReachable: Boolean(bot)
+  });
+}));
+
+app.put("/api/admin/settings", asyncRoute(async (req, res) => {
+  requireAdmin(req);
+  const web = await saveRuntimeSettings(req.body?.web || {});
+  const requestedBot = req.body?.bot as Partial<TgBotConfig> | undefined;
+  let bot: TgBotConfig | null = null;
+  let warning = "";
+
+  if (requestedBot) {
+    const synchronizedBot = {
+      ...requestedBot,
+      telegramBotToken: web.telegramBotToken,
+      telegramChatId: web.telegramChatId,
+      tmdbApiKey: web.tmdbApiKey,
+      embyUrl: web.embyServerUrl,
+      publicBaseUrl: web.publicTgBotUrl
+    } as TgBotConfig;
+    try {
+      bot = await saveTgBotConfig(synchronizedBot);
+    } catch (error) {
+      warning = `Web 配置已保存，但机器人同步失败：${(error as Error).message}`;
+    }
+  }
+
+  res.json({ web, bot, sidecarReachable: Boolean(bot), warning });
+}));
+
+app.post("/api/admin/settings/test/:target", asyncRoute(async (req, res) => {
+  requireAdmin(req);
+  const target = scalar(req.params.target, "") as "emby" | "tmdb" | "douban" | "telegram" | "all";
+  if (!("emby,tmdb,douban,telegram,all".split(",") as string[]).includes(target)) {
+    res.status(400).json({ error: "测试项目无效。" });
+    return;
+  }
+  res.json(await testTgBot(target));
 }));
 
 app.post(
@@ -312,7 +362,7 @@ app.post(
   asyncRoute(async (req, res) => {
     requireAdmin(req);
     if (!telegramConfigured()) {
-      res.status(400).json({ error: "请先配置 TELEGRAM_BOT_TOKEN 和 TELEGRAM_CHAT_ID。" });
+      res.status(400).json({ error: "请先在管理后台配置 Telegram Bot Token 和 Chat ID。" });
       return;
     }
     res.json(await sendTelegramTest());
@@ -350,6 +400,8 @@ app.use((error: Error & { status?: number }, _req: express.Request, res: express
     error: error.message || "服务器请求失败。"
   });
 });
+
+await loadRuntimeSettings();
 
 app.listen(config.port, () => {
   console.log(`TFEmby Web API listening on http://127.0.0.1:${config.port}`);

@@ -2,23 +2,14 @@ name: tfemby-web
 
 services:
   tfemby-web:
-    image: ${IMAGE:-xiaotong378/tfembyweb:latest}
+    image: xiaotong378/tfembyweb:latest
     container_name: tfemby-web
     ports:
-      - "${WEB_PORT:-8787}:8787"
+      - "8787:8787"
     environment:
       - PORT=8787
       - DATA_DIR=/data
-      - EMBY_SERVER_URL=${EMBY_SERVER_URL:-http://127.0.0.1:8096}
-      - TMDB_API_KEY=${TMDB_API_KEY:-}
-      - TMDB_BEARER_TOKEN=${TMDB_BEARER_TOKEN:-}
-      - DOUBAN_API_BASE=${DOUBAN_API_BASE:-}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
-      - TELEGRAM_API_BASE=${TELEGRAM_API_BASE:-https://api.telegram.org}
       - TGBOT_URL=http://tgbot:8099
-      - PUBLIC_TGBOT_URL=${PUBLIC_TGBOT_URL:-}
-      - TGBOT_PORT=${TGBOT_PORT:-8099}
     volumes:
       - tfemby-web-data:/data
     restart: unless-stopped
@@ -29,19 +20,7 @@ services:
     image: xiaotong378/tgbot:1.1.5
     container_name: tfemby-tgbot
     ports:
-      - "${TGBOT_PORT:-8099}:8099"
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
-      - TMDB_API_KEY=${TMDB_API_KEY:-}
-      - EMBY_SERVER_URL=${EMBY_SERVER_URL:-http://127.0.0.1:8096}
-      - EMBY_API_KEY=${EMBY_API_KEY:-}
-      - EMBY_USER_ID=${EMBY_USER_ID:-}
-      - PUBLIC_BASE_URL=${PUBLIC_TGBOT_URL:-}
-      - WEBHOOK_SECRET=${TGBOT_WEBHOOK_SECRET:-}
-      - EMBY_MONITOR_EVENTS=${EMBY_MONITOR_EVENTS:-library.new,item.added,item.created,itemadded}
-      - ENABLE_COVERS=${ENABLE_COVERS:-true}
-      - DOUBAN_FALLBACK_ENABLED=${DOUBAN_FALLBACK_ENABLED:-true}
+      - "8099:8099"
     volumes:
       - tfemby-tgbot-data:/app/data
     restart: unless-stopped

@@ -12,6 +12,28 @@ type TgBotStatus = {
   seenCount?: number;
 };
 
+export type TgBotConfig = {
+  telegramBotToken: string;
+  telegramChatId: string;
+  tmdbApiKey: string;
+  tmdbLanguage: string;
+  embyUrl: string;
+  embyApiKey: string;
+  embyUserId: string;
+  publicBaseUrl: string;
+  webhookSecret: string;
+  doubanFallbackEnabled: boolean;
+  enableCovers: boolean;
+  overviewMaxLength: number;
+  monitoredEvents: string;
+  includeTypes: string[];
+  pollIntervalSeconds: number;
+  latestLimit: number;
+  notifyFirstRun: boolean;
+  proxyEnabled: boolean;
+  proxyUrl: string;
+};
+
 const statusLabels: Record<RequestStatus, string> = {
   pending: "待处理",
   approved: "已接收",
@@ -130,6 +152,28 @@ export async function getTelegramIntegrationStatus() {
     port: config.tgBotPort,
     status
   };
+}
+
+export async function getTgBotConfig() {
+  const data = await tgBotCall("/api/config") as { config?: TgBotConfig };
+  if (!data.config) throw new Error("机器人没有返回配置。");
+  return data.config;
+}
+
+export async function saveTgBotConfig(settings: TgBotConfig) {
+  const data = await tgBotCall("/api/config", {
+    method: "POST",
+    body: JSON.stringify({ config: settings })
+  }) as { config?: TgBotConfig };
+  if (!data.config) throw new Error("机器人配置保存失败。");
+  return data.config;
+}
+
+export async function testTgBot(target: "emby" | "tmdb" | "douban" | "telegram" | "all") {
+  return tgBotCall("/api/test", {
+    method: "POST",
+    body: JSON.stringify({ target })
+  });
 }
 
 export async function controlTgBot(action: "start" | "stop" | "scan") {

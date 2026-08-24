@@ -9,6 +9,8 @@ import {
   ClipboardList,
   Flame,
   ExternalLink,
+  Eye,
+  EyeOff,
   Library,
   Link2,
   LogIn,
@@ -19,16 +21,18 @@ import {
   RefreshCw,
   Search,
   Send,
+  Save,
   Settings,
   ShieldCheck,
   Star,
   Sun,
+  TestTube2,
   Tv,
   X
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, loadSession, saveSession } from "./api";
-import type { AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, UserSession } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, EmbySession, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, UserSession, WebSettings } from "./types";
 
 type View = "overview" | "charts" | "search" | "resume" | "latest" | "requests" | "admin";
 
@@ -395,7 +399,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.1.1"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.2.0"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -701,7 +705,236 @@ function RequestView({ session }: { session: UserSession | null }) {
   );
 }
 
-function AdminView({ session }: { session: UserSession | null }) {
+const defaultBotConfig: TgBotConfig = {
+  telegramBotToken: "",
+  telegramChatId: "",
+  tmdbApiKey: "",
+  tmdbLanguage: "zh-CN",
+  embyUrl: "",
+  embyApiKey: "",
+  embyUserId: "",
+  publicBaseUrl: "",
+  webhookSecret: "",
+  doubanFallbackEnabled: true,
+  enableCovers: true,
+  overviewMaxLength: 420,
+  monitoredEvents: "library.new,item.added,item.created,itemadded",
+  includeTypes: ["Movie", "Episode"],
+  pollIntervalSeconds: 300,
+  latestLimit: 20,
+  notifyFirstRun: false,
+  proxyEnabled: false,
+  proxyUrl: ""
+};
+
+function SettingField({ label, value, onChange, placeholder, type = "text", min, max }: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: "text" | "number";
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <label className="settingsField">
+      <span>{label}</span>
+      <input type={type} min={min} max={max} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    </label>
+  );
+}
+
+function SecretSettingField({ label, value, onChange, placeholder }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className="settingsField">
+      <span>{label}</span>
+      <div className="secretField">
+        <input type={visible ? "text" : "password"} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} autoComplete="off" />
+        <button type="button" onClick={() => setVisible((current) => !current)} title={visible ? "隐藏" : "显示"} aria-label={visible ? `隐藏${label}` : `显示${label}`}>
+          {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </div>
+    </label>
+  );
+}
+
+function ToggleSetting({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="settingsToggle">
+      <span>{label}</span>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="toggleTrack"><span /></span>
+    </label>
+  );
+}
+
+function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved: () => void }) {
+  const settings = useAsync(() => api.adminSettings(session), [session.token], null as AdminSettings | null);
+  const [draft, setDraft] = useState<AdminSettings | null>(null);
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (settings.data) {
+      setDraft({
+        ...settings.data,
+        bot: settings.data.bot || { ...defaultBotConfig }
+      });
+    }
+  }, [settings.data]);
+
+  function updateWeb<Key extends keyof WebSettings>(key: Key, value: WebSettings[Key]) {
+    setDraft((current) => current ? { ...current, web: { ...current.web, [key]: value } } : current);
+  }
+
+  function updateBot<Key extends keyof TgBotConfig>(key: Key, value: TgBotConfig[Key]) {
+    setDraft((current) => current?.bot ? { ...current, bot: { ...current.bot, [key]: value } } : current);
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!draft) return;
+    setBusy("save");
+    setError("");
+    setMessage("");
+    try {
+      const saved = await api.saveAdminSettings(session, draft);
+      setDraft({ ...saved, bot: saved.bot || draft.bot });
+      setMessage(saved.warning || "设置已保存并立即生效。");
+      onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function test(target: "emby" | "tmdb" | "douban" | "telegram") {
+    if (!draft) return;
+    setBusy(target);
+    setError("");
+    setMessage("");
+    try {
+      const saved = await api.saveAdminSettings(session, draft);
+      setDraft({ ...saved, bot: saved.bot || draft.bot });
+      onSaved();
+      if (saved.warning) throw new Error(saved.warning);
+      const result = await api.testAdminSetting(session, target);
+      setMessage(result.messages?.join("；") || "连接测试成功。");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  if (settings.loading && !draft) return <div className="notice">正在读取系统设置。</div>;
+  if (!draft?.bot) return <div className="notice">{settings.error || "系统设置暂时无法读取。"}</div>;
+
+  const bot = draft.bot;
+  const setNumber = (key: "pollIntervalSeconds" | "latestLimit" | "overviewMaxLength", value: string) => updateBot(key, Number(value));
+  const toggleIncludeType = (type: string, checked: boolean) => {
+    const next = checked ? Array.from(new Set([...bot.includeTypes, type])) : bot.includeTypes.filter((item) => item !== type);
+    updateBot("includeTypes", next);
+  };
+
+  return (
+    <form className="settingsForm" onSubmit={save}>
+      <div className="settingsStatus">
+        <div>
+          <strong>系统设置</strong>
+          <span>配置保存在数据卷中，保存后立即生效</span>
+        </div>
+        <span className={`connectionPill ${draft.sidecarReachable ? "online" : ""}`}>
+          <span />{draft.sidecarReachable ? "机器人已连接" : "机器人未连接"}
+        </span>
+      </div>
+
+      {error || settings.error ? <div className="notice">{error || settings.error}</div> : null}
+      {message ? <div className={message.includes("失败") ? "notice" : "successText"}>{message}</div> : null}
+
+      <div className="settingsGroup">
+        <div className="settingsGroupHead"><h3>基础与 Emby</h3><span>用户登录和媒体库连接</span></div>
+        <div className="settingsGrid">
+          <SettingField label="项目名称" value={draft.web.appName} onChange={(value) => updateWeb("appName", value)} placeholder="TFEmby Web" />
+          <SettingField label="Emby 服务器地址" value={draft.web.embyServerUrl} onChange={(value) => updateWeb("embyServerUrl", value)} placeholder="http://192.168.1.10:8096" />
+          <SecretSettingField label="Emby API Key" value={bot.embyApiKey} onChange={(value) => updateBot("embyApiKey", value)} />
+          <SettingField label="Emby 用户 ID" value={bot.embyUserId} onChange={(value) => updateBot("embyUserId", value)} placeholder="可留空自动选择" />
+        </div>
+        <div className="settingsTestRow">
+          <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("emby")}><TestTube2 size={16} />{busy === "emby" ? "测试中" : "测试 Emby"}</button>
+        </div>
+      </div>
+
+      <div className="settingsGroup">
+        <div className="settingsGroupHead"><h3>榜单与元数据</h3><span>TMDB 榜单、搜索和豆瓣海报补全</span></div>
+        <div className="settingsGrid">
+          <SecretSettingField label="TMDB API Key" value={draft.web.tmdbApiKey} onChange={(value) => updateWeb("tmdbApiKey", value)} />
+          <SecretSettingField label="TMDB Bearer Token" value={draft.web.tmdbBearerToken} onChange={(value) => updateWeb("tmdbBearerToken", value)} />
+          <SettingField label="TMDB 语言" value={bot.tmdbLanguage} onChange={(value) => updateBot("tmdbLanguage", value)} placeholder="zh-CN" />
+          <SettingField label="豆瓣 API 地址" value={draft.web.doubanApiBase} onChange={(value) => updateWeb("doubanApiBase", value)} placeholder="可留空使用公开搜索兜底" />
+        </div>
+        <div className="settingsTestRow">
+          <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("tmdb")}><TestTube2 size={16} />{busy === "tmdb" ? "测试中" : "测试 TMDB"}</button>
+          <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("douban")}><TestTube2 size={16} />{busy === "douban" ? "测试中" : "测试豆瓣"}</button>
+        </div>
+      </div>
+
+      <div className="settingsGroup">
+        <div className="settingsGroupHead"><h3>Telegram 通知</h3><span>求片和入库消息推送</span></div>
+        <div className="settingsGrid">
+          <SecretSettingField label="Bot Token" value={draft.web.telegramBotToken} onChange={(value) => updateWeb("telegramBotToken", value)} />
+          <SettingField label="Chat ID" value={draft.web.telegramChatId} onChange={(value) => updateWeb("telegramChatId", value)} placeholder="多个 ID 使用英文逗号分隔" />
+          <SettingField label="Telegram API 地址" value={draft.web.telegramApiBase} onChange={(value) => updateWeb("telegramApiBase", value)} placeholder="https://api.telegram.org" />
+          <SettingField label="机器人外部访问地址" value={draft.web.publicTgBotUrl} onChange={(value) => updateWeb("publicTgBotUrl", value)} placeholder="http://NAS-IP:8099" />
+        </div>
+        <div className="settingsTestRow">
+          <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("telegram")}><TestTube2 size={16} />{busy === "telegram" ? "测试中" : "测试 Telegram"}</button>
+        </div>
+      </div>
+
+      <div className="settingsGroup">
+        <div className="settingsGroupHead"><h3>机器人高级设置</h3><span>Webhook、扫描、封面和代理</span></div>
+        <div className="settingsGrid">
+          <SettingField label="机器人内部地址" value={draft.web.tgBotUrl} onChange={(value) => updateWeb("tgBotUrl", value)} placeholder="http://tgbot:8099" />
+          <SettingField label="机器人访问端口" type="number" min={1} max={65535} value={draft.web.tgBotPort} onChange={(value) => updateWeb("tgBotPort", Number(value))} />
+          <SecretSettingField label="Webhook 密钥" value={bot.webhookSecret} onChange={(value) => updateBot("webhookSecret", value)} />
+          <SettingField label="监听事件" value={bot.monitoredEvents} onChange={(value) => updateBot("monitoredEvents", value)} />
+          <SettingField label="扫描间隔（秒）" type="number" min={60} max={86400} value={bot.pollIntervalSeconds} onChange={(value) => setNumber("pollIntervalSeconds", value)} />
+          <SettingField label="最近入库数量" type="number" min={1} max={100} value={bot.latestLimit} onChange={(value) => setNumber("latestLimit", value)} />
+          <SettingField label="简介最大长度" type="number" min={80} max={2000} value={bot.overviewMaxLength} onChange={(value) => setNumber("overviewMaxLength", value)} />
+          <SettingField label="代理地址" value={bot.proxyUrl} onChange={(value) => updateBot("proxyUrl", value)} placeholder="http://host:port" />
+        </div>
+        <div className="settingsSwitches">
+          <ToggleSetting label="通知首次扫描" checked={bot.notifyFirstRun} onChange={(value) => updateBot("notifyFirstRun", value)} />
+          <ToggleSetting label="发送封面" checked={bot.enableCovers} onChange={(value) => updateBot("enableCovers", value)} />
+          <ToggleSetting label="豆瓣兜底" checked={bot.doubanFallbackEnabled} onChange={(value) => updateBot("doubanFallbackEnabled", value)} />
+          <ToggleSetting label="启用代理" checked={bot.proxyEnabled} onChange={(value) => updateBot("proxyEnabled", value)} />
+        </div>
+        <div className="settingsChecks">
+          <span>监控类型</span>
+          {[{ value: "Movie", label: "电影" }, { value: "Series", label: "剧集" }, { value: "Episode", label: "单集" }].map((item) => (
+            <label key={item.value}><input type="checkbox" checked={bot.includeTypes.includes(item.value)} onChange={(event) => toggleIncludeType(item.value, event.target.checked)} />{item.label}</label>
+          ))}
+        </div>
+      </div>
+
+      <div className="settingsSaveBar">
+        <span>Web 与机器人配置将同步保存</span>
+        <button className="primaryBtn settingsSave" disabled={Boolean(busy)}><Save size={17} />{busy === "save" ? "保存中" : "保存设置"}</button>
+      </div>
+    </form>
+  );
+}
+
+function AdminView({ session, onConfigChange }: { session: UserSession | null; onConfigChange: () => void }) {
   const latest = useAsync(() => (session?.emby ? api.latest(session.emby) : Promise.resolve([])), [session?.emby?.accessToken], [] as MediaItem[]);
   const requests = useAsync(() => (session?.role === "admin" ? api.requests(session) : Promise.resolve([])), [session?.token], [] as MediaRequest[]);
   const telegram = useAsync(
@@ -756,6 +989,12 @@ function AdminView({ session }: { session: UserSession | null }) {
         </div>
       </div>
       {error || requests.error || latest.error || telegram.error ? <div className="notice">{error || requests.error || latest.error || telegram.error}</div> : null}
+      <div className="adminSection settingsSection">
+        <AdminSettingsForm session={session} onSaved={() => {
+          onConfigChange();
+          telegram.reload().catch(() => undefined);
+        }} />
+      </div>
       <div className="adminSection">
         <div className="subhead">
           <h2>Telegram 通知</h2>
@@ -862,7 +1101,7 @@ export function App() {
           {view === "resume" ? <TimelineView session={embySession} kind="resume" /> : null}
           {view === "latest" ? <TimelineView session={embySession} kind="latest" /> : null}
           {view === "requests" ? <RequestView session={session} /> : null}
-          {view === "admin" ? <AdminView session={session} /> : null}
+          {view === "admin" ? <AdminView session={session} onConfigChange={() => api.config().then(setConfig).catch(() => undefined)} /> : null}
         </div>
       </main>
     </div>

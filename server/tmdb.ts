@@ -65,7 +65,7 @@ function toChartItem(media: TmdbMedia, chart: string, rank: number): ChartItem {
 
 function requireTmdb() {
   if (!config.tmdbApiKey && !config.tmdbBearerToken) {
-    const error = new Error("请先配置 TMDB_API_KEY 或 TMDB_BEARER_TOKEN。");
+    const error = new Error("请先在管理后台配置 TMDB API Key 或 Bearer Token。");
     (error as Error & { status?: number }).status = 503;
     throw error;
   }
@@ -145,7 +145,7 @@ function fallback(chart: string): ChartItem[] {
     mediaType,
     year: Number(year),
     voteAverage: Number(score),
-    overview: "配置 TMDB_API_KEY 或 TMDB_BEARER_TOKEN 后将显示实时榜单。",
+    overview: "在管理后台配置 TMDB API Key 或 Bearer Token 后将显示实时榜单。",
     externalIds: {
       tmdb: `demo-${index + 1}`
     }
