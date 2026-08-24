@@ -2,7 +2,7 @@
 set -euo pipefail
 
 IMAGE="${IMAGE:-xiaotong378/tfembyweb}"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.1}"
 BUILDER="${BUILDER:-}"
 
 if [[ -n "$BUILDER" ]]; then
@@ -17,6 +17,7 @@ docker buildx inspect --bootstrap >/dev/null
 
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
+  --build-arg "APP_VERSION=$VERSION" \
   --tag "$IMAGE:$VERSION" \
   --tag "$IMAGE:latest" \
   --push \
@@ -24,12 +25,14 @@ docker buildx build \
 
 docker buildx build \
   --platform linux/amd64 \
+  --build-arg "APP_VERSION=$VERSION" \
   --tag "$IMAGE:$VERSION-amd64" \
   --push \
   .
 
 docker buildx build \
   --platform linux/arm64 \
+  --build-arg "APP_VERSION=$VERSION" \
   --tag "$IMAGE:$VERSION-arm64" \
   --push \
   .

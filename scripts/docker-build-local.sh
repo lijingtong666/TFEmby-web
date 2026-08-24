@@ -22,6 +22,7 @@ esac
 
 docker buildx build \
   --platform "$PLATFORM" \
+  --build-arg "APP_VERSION=$VERSION" \
   --tag "$IMAGE:$VERSION-$SUFFIX" \
   --load \
   .

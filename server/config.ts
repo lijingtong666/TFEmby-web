@@ -17,7 +17,7 @@ export const config = {
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: "0.1.0"
+  version: process.env.APP_VERSION || "0.1.1"
 };
 
 export function cleanBaseUrl(value: string) {

@@ -89,6 +89,7 @@ app.get("/api/config", asyncRoute(async (_req, res) => {
   const status = await authStatus();
   res.json({
     appName: config.appName,
+    version: config.version,
     embyServerUrl: config.embyServerUrl,
     tmdbEnabled: Boolean(config.tmdbApiKey || config.tmdbBearerToken),
     doubanEnabled: Boolean(config.doubanApiBase),

@@ -97,7 +97,7 @@ docker run -d \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
   --env-file .env \
-  xiaotong378/tfembyweb:0.1.0-arm64
+  xiaotong378/tfembyweb:0.1.1-arm64
 ```
 
 指定 `amd64` 镜像：
@@ -109,7 +109,7 @@ docker run -d \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
   --env-file .env \
-  xiaotong378/tfembyweb:0.1.0-amd64
+  xiaotong378/tfembyweb:0.1.1-amd64
 ```
 
 查看日志：
@@ -209,16 +209,16 @@ linux/arm64
 推送多架构 manifest 以及两个架构独立 tag：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.1.0 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.1.1 ./scripts/docker-buildx-push.sh
 ```
 
 生成的 tag：
 
 ```text
 xiaotong378/tfembyweb:latest
-xiaotong378/tfembyweb:0.1.0
-xiaotong378/tfembyweb:0.1.0-amd64
-xiaotong378/tfembyweb:0.1.0-arm64
+xiaotong378/tfembyweb:0.1.1
+xiaotong378/tfembyweb:0.1.1-amd64
+xiaotong378/tfembyweb:0.1.1-arm64
 ```
 
 本机只构建当前架构：
