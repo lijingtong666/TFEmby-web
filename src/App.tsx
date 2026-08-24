@@ -399,7 +399,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.2.2"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.3.0"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -903,7 +903,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       <div className="settingsGroup">
         <div className="settingsGroupHead"><h3>机器人高级设置</h3><span>Webhook、扫描、封面和代理</span></div>
         <div className="settingsGrid">
-          <SettingField label="机器人内部地址" value={draft.web.tgBotUrl} onChange={(value) => updateWeb("tgBotUrl", value)} placeholder="http://tgbot:8099" />
+          <SettingField label="机器人内部地址" value={draft.web.tgBotUrl} onChange={(value) => updateWeb("tgBotUrl", value)} placeholder="http://127.0.0.1:8099" />
           <SettingField label="机器人访问端口" type="number" min={1} max={65535} value={draft.web.tgBotPort} onChange={(value) => updateWeb("tgBotPort", Number(value))} />
           <SecretSettingField label="Webhook 密钥" value={bot.webhookSecret} onChange={(value) => updateBot("webhookSecret", value)} />
           <SettingField label="监听事件" value={bot.monitoredEvents} onChange={(value) => updateBot("monitoredEvents", value)} />

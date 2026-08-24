@@ -22,7 +22,7 @@ PUBLIC_DIR = ROOT / "public"
 DATA_DIR = ROOT / "data"
 CONFIG_PATH = DATA_DIR / "config.json"
 STATE_PATH = DATA_DIR / "state.json"
-APP_VERSION = os.environ.get("APP_VERSION", "1.1.6")
+APP_VERSION = os.environ.get("TGBOT_VERSION") or os.environ.get("APP_VERSION", "1.1.6")
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("WEBHOOK_PORT") or os.environ.get("PORT") or "8099")
 

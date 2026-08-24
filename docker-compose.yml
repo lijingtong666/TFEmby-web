@@ -7,33 +7,20 @@ services:
     container_name: tfemby-web
     ports:
       - "8787:8787"
+      - "8099:8099"
     environment:
       - PORT=8787
       - DATA_DIR=/data
-      - TGBOT_URL=http://tgbot:8099
+      - TGBOT_URL=http://127.0.0.1:8099
+      - TGBOT_VERSION=1.1.6
+      - WEBHOOK_PORT=8099
+      - HOST=0.0.0.0
     volumes:
       - tfemby-web-data:/data
-    restart: unless-stopped
-    depends_on:
-      tgbot:
-        condition: service_healthy
-
-  tgbot:
-    build: .
-    image: tfembyweb:local
-    container_name: tfemby-tgbot
-    command: ["python3", "/app/tgbot/app.py"]
-    ports:
-      - "8099:8099"
-    environment:
-      - APP_VERSION=1.1.6
-      - HOST=0.0.0.0
-      - PORT=8099
-    volumes:
       - tfemby-tgbot-data:/app/tgbot/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/api/status', timeout=3).read()"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/api/health', timeout=3).read(); urllib.request.urlopen('http://127.0.0.1:8099/api/status', timeout=3).read()"]
       interval: 30s
       timeout: 5s
       retries: 3

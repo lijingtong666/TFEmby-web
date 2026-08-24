@@ -41,13 +41,13 @@ export const config: RuntimeConfig = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || process.env.TG_BOT_TOKEN || "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID || process.env.TG_CHAT_ID || "",
   telegramApiBase: cleanBaseUrl(process.env.TELEGRAM_API_BASE || "https://api.telegram.org"),
-  tgBotUrl: cleanBaseUrl(process.env.TGBOT_URL || "http://tgbot:8099"),
+  tgBotUrl: cleanBaseUrl(process.env.TGBOT_URL || "http://127.0.0.1:8099"),
   publicTgBotUrl: cleanBaseUrl(process.env.PUBLIC_TGBOT_URL || ""),
   tgBotPort: Number(process.env.TGBOT_PORT || 8099),
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.2.2"
+  version: process.env.APP_VERSION || "0.3.0"
 };
 
 const settingsPath = path.resolve(config.dataDir, "settings.json");
@@ -65,6 +65,13 @@ function normalizeUrl(value: unknown, label: string, fallback = "") {
     (error as Error & { status?: number }).status = 400;
     throw error;
   }
+}
+
+function normalizeTgBotUrl(value: unknown) {
+  const normalized = normalizeUrl(value, "机器人内部地址", "http://127.0.0.1:8099") || "http://127.0.0.1:8099";
+  return normalized === "http://tgbot:8099" || normalized === "http://tfemby-tgbot:8099"
+    ? "http://127.0.0.1:8099"
+    : normalized;
 }
 
 function normalizedSettings(input: Partial<WebSettings>): WebSettings {
@@ -91,7 +98,7 @@ function normalizedSettings(input: Partial<WebSettings>): WebSettings {
     telegramBotToken: String(input.telegramBotToken ?? config.telegramBotToken).trim(),
     telegramChatId: String(input.telegramChatId ?? config.telegramChatId).trim(),
     telegramApiBase: normalizeUrl(input.telegramApiBase, "Telegram API 地址", "https://api.telegram.org") || "https://api.telegram.org",
-    tgBotUrl: normalizeUrl(input.tgBotUrl, "机器人内部地址", "http://tgbot:8099") || "http://tgbot:8099",
+    tgBotUrl: normalizeTgBotUrl(input.tgBotUrl),
     publicTgBotUrl: normalizeUrl(input.publicTgBotUrl, "机器人访问地址"),
     tgBotPort
   };

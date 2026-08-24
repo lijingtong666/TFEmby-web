@@ -2,7 +2,7 @@
 set -euo pipefail
 
 IMAGE="${IMAGE:-xiaotong378/tfembyweb}"
-VERSION="${VERSION:-0.2.2}"
+VERSION="${VERSION:-0.3.0}"
 BUILDER="${BUILDER:-}"
 
 if [[ -n "$BUILDER" ]]; then
