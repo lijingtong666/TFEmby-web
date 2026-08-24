@@ -1,0 +1,39 @@
+services:
+  tg-emby-notify:
+    image: xiaotong378/tgbot:latest
+    container_name: tg-emby-notify
+    restart: unless-stopped
+    environment:
+      APP_VERSION: "1.1.6"
+      HOST: 0.0.0.0
+      PORT: 8099
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_CHAT_ID: ""
+      TMDB_API_KEY: ""
+      EMBY_SERVER_URL: ""
+      EMBY_API_KEY: ""
+      WEBHOOK_HOST: ""
+      WEBHOOK_PORT: ""
+      EMBY_MONITOR_EVENTS: "library.new,item.added,item.created,itemadded"
+      ENABLE_COVERS: "true"
+      OVERVIEW_MAX_LENGTH: ""
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      NO_PROXY: "localhost,127.0.0.0/8,10.0.0.0/8,172.0.0.0/8,192.168.0.0/16"
+      TZ: Asia/Shanghai
+    ports:
+      - "8099:8099"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/api/status', timeout=3).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
