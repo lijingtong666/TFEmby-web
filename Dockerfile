@@ -13,7 +13,7 @@ RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate && pnpm 
 
 FROM node:20-alpine
 WORKDIR /app
-ARG APP_VERSION=0.5.0
+ARG APP_VERSION=0.5.1
 ENV NODE_ENV=production
 ENV PORT=8787
 ENV DATA_DIR=/data

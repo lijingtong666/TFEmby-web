@@ -221,15 +221,26 @@ function ChartDetail({ item, onClose }: { item: ChartItem | null; onClose: () =>
 }
 
 function MediaRow({ item }: { item: MediaItem }) {
+  const episodeTitle = item.title.trim();
+  const genericEpisodeTitle = /^第\s*\d+\s*集$|^episode\s*\d+$|^s\d+e\d+$/i.test(episodeTitle);
+  const episodePosition = [
+    item.seasonNumber ? `第${item.seasonNumber}季` : "",
+    item.episodeNumber ? `第${item.episodeNumber}集` : ""
+  ].filter(Boolean).join(" ");
+  const displayTitle = item.type === "episode" && item.seriesName ? item.seriesName : item.title;
+  const displayMeta = item.type === "episode"
+    ? [episodePosition || "剧集单集", !genericEpisodeTitle && episodeTitle !== displayTitle ? episodeTitle : ""].filter(Boolean).join(" · ")
+    : item.type === "series" ? "剧集" : "电影";
+
   return (
     <article className="rowItem">
       <Poster item={item} compact />
       <div className="rowBody">
         <div className="rowTop">
-          <strong>{item.title}</strong>
+          <strong title={displayTitle}>{displayTitle}</strong>
           <span>{item.year || formatDate(item.dateCreated || item.userData?.lastPlayedDate)}</span>
         </div>
-        <div className="muted">{item.type === "episode" ? "剧集单集" : item.type === "series" ? "剧集" : "电影"}</div>
+        <div className="muted">{displayMeta}</div>
         {item.recentEpisodeRange ? <div className="episodeRange">{item.recentEpisodeRange}</div> : null}
         {item.userData?.progressPercent ? (
           <div className="progress">
@@ -401,7 +412,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.5.0"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.5.1"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
