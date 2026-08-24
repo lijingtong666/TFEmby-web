@@ -2574,6 +2574,229 @@ h2 {
   color: var(--brand-strong);
 }
 
+.content.discoverContent {
+  width: 100%;
+  max-width: none;
+  padding-inline: clamp(20px, 3vw, 46px);
+}
+
+.discoverPanel {
+  border: 0;
+  border-radius: 0;
+  padding: 8px 0 28px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.discoverHead {
+  margin-bottom: 22px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.discoverHead h1 {
+  margin-top: 8px;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.discoverHead p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.providerTag {
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.discoverReset {
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 720;
+}
+
+.discoverReset:hover {
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--line));
+  color: var(--brand-strong);
+}
+
+.discoverFilters {
+  margin-bottom: 26px;
+  padding: 8px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 9px 26px rgba(27, 37, 55, 0.05);
+}
+
+.discoverFilterRow {
+  min-width: 0;
+  min-height: 58px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.discoverFilterRow:last-child {
+  border-bottom: 0;
+}
+
+.discoverFilterLabel {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.discoverChoices {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.discoverChoices button {
+  width: auto;
+  min-width: max-content;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.discoverChoices button:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
+
+.discoverChoices button.active {
+  border-color: color-mix(in srgb, var(--brand) 22%, var(--line));
+  background: color-mix(in srgb, var(--brand) 11%, var(--surface));
+  color: var(--brand-strong);
+}
+
+.compactChoices button {
+  min-height: 38px;
+  padding-inline: 14px;
+}
+
+.discoverRangeRow {
+  grid-template-columns: 92px 170px minmax(260px, 1fr);
+}
+
+.discoverYear select {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 34px 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.scoreRange {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) 48px;
+  align-items: center;
+  gap: 12px;
+}
+
+.scoreRange > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.scoreRange input {
+  width: 100%;
+  accent-color: var(--brand);
+}
+
+.scoreRange strong {
+  color: var(--brand-strong);
+  text-align: right;
+  font-size: 13px;
+}
+
+.discoverResultHead {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.discoverResultHead > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.discoverResultHead h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.discoverResultHead span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.discoverResultHead > div:last-child {
+  flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+}
+
+.discoverResultHead strong {
+  font-size: 19px;
+}
+
+.discoverGrid {
+  grid-template-columns: repeat(auto-fill, minmax(142px, 160px));
+  justify-content: start;
+  gap: 20px 14px;
+}
+
+.discoverGrid .watchBadge {
+  top: auto;
+  bottom: 72px;
+}
+
 .chartCard {
   cursor: pointer;
 }
@@ -3137,8 +3360,82 @@ h2 {
     padding-inline: 14px;
   }
 
+  .content.discoverContent {
+    padding-inline: 14px;
+  }
+
   .chartsPanel {
     padding: 4px 0 24px;
+  }
+
+  .discoverPanel {
+    padding: 4px 0 24px;
+  }
+
+  .discoverHead {
+    align-items: flex-start;
+    margin-bottom: 18px;
+  }
+
+  .discoverHead h1 {
+    font-size: 24px;
+  }
+
+  .discoverReset {
+    width: 42px;
+    min-height: 42px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  .discoverFilters {
+    padding: 6px 12px;
+    border-radius: 16px;
+  }
+
+  .discoverFilterRow,
+  .discoverRangeRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 12px 0;
+  }
+
+  .scrollChoices {
+    margin-right: -12px;
+    padding-right: 12px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .scrollChoices::-webkit-scrollbar {
+    display: none;
+  }
+
+  .discoverYear {
+    width: 100%;
+  }
+
+  .scoreRange {
+    grid-template-columns: auto minmax(100px, 1fr) 44px;
+  }
+
+  .discoverResultHead {
+    align-items: flex-start;
+  }
+
+  .discoverResultHead > div:first-child {
+    display: grid;
+    gap: 3px;
+  }
+
+  .discoverResultHead > div:last-child {
+    text-align: right;
+  }
+
+  .discoverGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 10px;
   }
 
   .chartsIntro {

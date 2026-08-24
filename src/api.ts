@@ -87,6 +87,13 @@ export const api = {
     if (genre) params.set("genre", genre);
     return request<ChartPage>(`/api/charts/${source}/${chart}?${params}`, session);
   },
+  discover: (filters: { media: "movie" | "tv"; page: number; year: string; genre: string; language: string; minScore: number; sort: string }, session?: EmbySession | null) => {
+    const params = new URLSearchParams({ media: filters.media, page: String(filters.page), sort: filters.sort, minScore: String(filters.minScore) });
+    if (filters.year) params.set("year", filters.year);
+    if (filters.genre) params.set("genre", filters.genre);
+    if (filters.language) params.set("language", filters.language);
+    return request<ChartPage>(`/api/tmdb/discover?${params}`, session);
+  },
   tmdbDetails: (tmdbId: string, mediaType: "movie" | "tv", session?: EmbySession | null) =>
     request<TmdbTitleDetails>(`/api/tmdb/${mediaType}/${encodeURIComponent(tmdbId)}/details`, session),
   tmdbSeason: (tmdbId: string, seasonNumber: number, session?: EmbySession | null) =>

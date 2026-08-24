@@ -146,7 +146,7 @@ docker compose down
 发布唯一的多架构 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.6.8 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.6.9 ./scripts/docker-buildx-push.sh
 ```
 
 镜像平台：

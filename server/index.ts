@@ -18,7 +18,7 @@ import {
 } from "./emby.js";
 import { createMediaRequest, listMediaRequests, updateMediaRequest } from "./requests.js";
 import { enrichChartPosters } from "./posters.js";
-import { fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasonDetails, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
+import { discoverTmdb, fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasonDetails, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
 import {
   controlTgBot,
   getTgBotConfig,
@@ -275,6 +275,29 @@ app.get(
   "/api/emby/latest",
   asyncRoute(async (req, res) => {
     res.json(await getLatestItems(requireSession(req)));
+  })
+);
+
+app.get(
+  "/api/tmdb/discover",
+  asyncRoute(async (req, res) => {
+    const mediaType = scalar(req.query.media, "movie") === "tv" ? "tv" : "movie";
+    const page = Math.min(30, Math.max(1, Number(req.query.page) || 1));
+    const requestedYear = Number(req.query.year);
+    const year = Number.isInteger(requestedYear) && requestedYear >= 1900 && requestedYear <= new Date().getFullYear() + 2 ? requestedYear : undefined;
+    const requestedGenre = Number(req.query.genre);
+    const genre = Number.isInteger(requestedGenre) && requestedGenre > 0 ? requestedGenre : undefined;
+    const requestedScore = Number(req.query.minScore);
+    const minScore = Number.isFinite(requestedScore) && requestedScore >= 0 && requestedScore <= 10 ? requestedScore : undefined;
+    const requestedLanguage = scalar(req.query.language, "").toLowerCase();
+    const language = /^[a-z]{2}$/.test(requestedLanguage) ? requestedLanguage : undefined;
+    const requestedSort = scalar(req.query.sort, "popular-desc");
+    const sortOptions = ["popular-desc", "popular-asc", "score-desc", "release-desc", "release-asc"] as const;
+    const sort = sortOptions.find((value) => value === requestedSort) || "popular-desc";
+    const session = sessionFromAuthHeader(req.headers.authorization)?.emby || sessionFromHeaders(req.headers);
+    const result = await discoverTmdb(mediaType, { page, year, genre, minScore, language, sort });
+    const items = await annotateChartItems(session, await enrichChartPosters(result.items));
+    res.json({ ...result, items });
   })
 );
 

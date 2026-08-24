@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clapperboard,
   ClipboardList,
+  Compass,
   Copy,
   Flame,
   ExternalLink,
@@ -39,11 +40,12 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, loadSession, saveSession } from "./api";
 import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession, WebSettings } from "./types";
 
-type View = "overview" | "charts" | "search" | "resume" | "latest" | "requests" | "admin";
+type View = "overview" | "charts" | "discover" | "search" | "resume" | "latest" | "requests" | "admin";
 
 const navItems: { key: View; label: string; icon: ReactNode; adminOnly?: boolean }[] = [
   { key: "overview", label: "总览概况", icon: <BarChart3 size={22} /> },
   { key: "charts", label: "全网热榜", icon: <Flame size={22} /> },
+  { key: "discover", label: "探索发现", icon: <Compass size={22} /> },
   { key: "search", label: "片库搜索", icon: <Search size={22} /> },
   { key: "resume", label: "继续观看", icon: <PlaySquare size={22} /> },
   { key: "latest", label: "最近新增", icon: <BadgePlus size={22} /> },
@@ -135,6 +137,25 @@ const tvGenres = [
   [10766, "肥皂剧"], [10767, "脱口秀"], [10768, "战争政治"], [37, "西部"]
 ] as const;
 
+const discoverSorts = [
+  ["popular-desc", "热度降序"],
+  ["popular-asc", "热度升序"],
+  ["score-desc", "评分优先"],
+  ["release-desc", "最新上映"],
+  ["release-asc", "最早上映"]
+] as const;
+
+const discoverLanguages = [
+  ["", "全部语言"],
+  ["zh", "中文"],
+  ["en", "英语"],
+  ["ja", "日语"],
+  ["ko", "韩语"],
+  ["fr", "法语"],
+  ["de", "德语"],
+  ["es", "西班牙语"]
+] as const;
+
 const emptyChartPage: ChartPage = { items: [], page: 1, totalPages: 1, totalResults: 0 };
 
 function pageNumbers(current: number, total: number) {
@@ -187,7 +208,7 @@ function Poster({ item, compact = false }: { item: MediaItem | ChartItem | Media
   );
 }
 
-function ChartCard({ item, onOpen }: { item: ChartItem; onOpen: () => void }) {
+function ChartCard({ item, onOpen, showRank = true }: { item: ChartItem; onOpen: () => void; showRank?: boolean }) {
   const status = item.libraryStatus;
   return (
     <article
@@ -203,7 +224,7 @@ function ChartCard({ item, onOpen }: { item: ChartItem; onOpen: () => void }) {
         }
       }}
     >
-      <div className="rank">#{item.rank}</div>
+      {showRank ? <div className="rank">#{item.rank}</div> : null}
       <Poster item={item} />
       <div className="mediaTitle" title={item.title}>
         {item.title}
@@ -626,7 +647,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.8"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.9"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -762,6 +783,114 @@ function ChartView({ session }: { session: EmbySession | null }) {
           </div>
         </>
       )}
+      <ChartDetail item={detail} session={session} onClose={() => setDetail(null)} />
+    </section>
+  );
+}
+
+function DiscoverView({ session }: { session: EmbySession | null }) {
+  const [media, setMedia] = useState<"movie" | "tv">("movie");
+  const [sort, setSort] = useState("popular-desc");
+  const [genre, setGenre] = useState("");
+  const [language, setLanguage] = useState("");
+  const [year, setYear] = useState("");
+  const [minScore, setMinScore] = useState(0);
+  const [page, setPage] = useState(1);
+  const [detail, setDetail] = useState<ChartItem | null>(null);
+  const genreOptions = media === "tv" ? tvGenres : movieGenres;
+  const years = useMemo(() => Array.from({ length: new Date().getFullYear() - 1948 }, (_, index) => new Date().getFullYear() + 1 - index), []);
+  const { data, loading, error } = useAsync(
+    () => api.discover({ media, page, year, genre, language, minScore, sort }, session),
+    [media, page, year, genre, language, minScore, sort, session?.accessToken],
+    emptyChartPage
+  );
+  const pages = pageNumbers(data.page, data.totalPages);
+
+  function resetFilters() {
+    setSort("popular-desc");
+    setGenre("");
+    setLanguage("");
+    setYear("");
+    setMinScore(0);
+    setPage(1);
+  }
+
+  return (
+    <section className="panel discoverPanel">
+      <div className="discoverHead">
+        <div>
+          <span className="providerTag"><Compass size={15} />TMDB</span>
+          <h1>探索发现</h1>
+          <p>按喜好浏览电影与电视剧</p>
+        </div>
+        <button type="button" className="discoverReset" onClick={resetFilters}><RefreshCw size={16} />重置筛选</button>
+      </div>
+
+      <div className="discoverFilters">
+        <div className="discoverFilterRow">
+          <span className="discoverFilterLabel">类型</span>
+          <div className="discoverChoices compactChoices">
+            <button type="button" className={media === "movie" ? "active" : ""} onClick={() => { setMedia("movie"); setGenre(""); setPage(1); }}><Clapperboard size={16} />电影</button>
+            <button type="button" className={media === "tv" ? "active" : ""} onClick={() => { setMedia("tv"); setGenre(""); setPage(1); }}><Tv size={16} />电视剧</button>
+          </div>
+        </div>
+        <div className="discoverFilterRow">
+          <span className="discoverFilterLabel">排序</span>
+          <div className="discoverChoices">
+            {discoverSorts.map(([value, label]) => <button type="button" className={sort === value ? "active" : ""} key={value} onClick={() => { setSort(value); setPage(1); }}>{label}</button>)}
+          </div>
+        </div>
+        <div className="discoverFilterRow">
+          <span className="discoverFilterLabel">影片类型</span>
+          <div className="discoverChoices scrollChoices">
+            <button type="button" className={!genre ? "active" : ""} onClick={() => { setGenre(""); setPage(1); }}>全部</button>
+            {genreOptions.map(([value, label]) => <button type="button" className={genre === String(value) ? "active" : ""} key={value} onClick={() => { setGenre(String(value)); setPage(1); }}>{label}</button>)}
+          </div>
+        </div>
+        <div className="discoverFilterRow">
+          <span className="discoverFilterLabel">语言</span>
+          <div className="discoverChoices scrollChoices">
+            {discoverLanguages.map(([value, label]) => <button type="button" className={language === value ? "active" : ""} key={value || "all"} onClick={() => { setLanguage(value); setPage(1); }}>{label}</button>)}
+          </div>
+        </div>
+        <div className="discoverFilterRow discoverRangeRow">
+          <span className="discoverFilterLabel">年份与评分</span>
+          <label className="discoverYear">
+            <select value={year} onChange={(event) => { setYear(event.target.value); setPage(1); }}>
+              <option value="">全部年份</option>
+              {years.map((value) => <option value={value} key={value}>{value} 年</option>)}
+            </select>
+          </label>
+          <label className="scoreRange">
+            <span>最低评分</span>
+            <input type="range" min="0" max="9" step="0.5" value={minScore} onChange={(event) => { setMinScore(Number(event.target.value)); setPage(1); }} />
+            <strong>{minScore ? `${minScore.toFixed(1)}+` : "不限"}</strong>
+          </label>
+        </div>
+      </div>
+
+      <div className="discoverResultHead">
+        <div><h2>{media === "movie" ? "电影" : "电视剧"}</h2></div>
+        <div><strong>{data.totalResults.toLocaleString("zh-CN")}</strong><span>条结果 · 第 {data.page}/{data.totalPages} 页</span></div>
+      </div>
+      {error ? <div className="notice">{error}</div> : null}
+      {loading ? <div className="loadingGrid" /> : data.items.length ? (
+        <div className="grid discoverGrid">
+          {data.items.map((item) => <ChartCard showRank={false} key={`${item.externalIds.tmdb || item.rank}-${item.title}`} item={item} onOpen={() => setDetail(item)} />)}
+        </div>
+      ) : <div className="notice">当前筛选条件下暂无内容。</div>}
+      {data.totalPages > 1 ? (
+        <nav className="pagination" aria-label="探索分页">
+          <button type="button" className="pageArrow" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} title="上一页" aria-label="上一页"><ChevronLeft size={19} /></button>
+          {pages.map((value, index) => (
+            <div className="pageSlot" key={value}>
+              {index > 0 && value - pages[index - 1] > 1 ? <span>…</span> : null}
+              <button type="button" className={value === data.page ? "active" : ""} disabled={loading} onClick={() => setPage(value)}>{value}</button>
+            </div>
+          ))}
+          <button type="button" className="pageArrow" disabled={page >= data.totalPages || loading} onClick={() => setPage((current) => Math.min(data.totalPages, current + 1))} title="下一页" aria-label="下一页"><ChevronRight size={19} /></button>
+        </nav>
+      ) : null}
       <ChartDetail item={detail} session={session} onClose={() => setDetail(null)} />
     </section>
   );
@@ -1625,9 +1754,10 @@ export function App() {
       <Sidebar view={view} setView={setView} open={sidebarOpen} setOpen={setSidebarOpen} config={config} session={session} onLogin={handleLogin} onLogout={handleLogout} />
       <main>
         <Topbar onMenu={() => setSidebarOpen(true)} dark={dark} setDark={setDark} onRefresh={() => setView((current) => current)} />
-        <div className={`content ${view === "charts" ? "chartsContent" : ""}`} key={refreshToken}>
+        <div className={`content ${view === "charts" ? "chartsContent" : view === "discover" ? "discoverContent" : ""}`} key={refreshToken}>
           {view === "overview" ? <Overview session={embySession} /> : null}
           {view === "charts" ? <ChartView session={embySession} /> : null}
+          {view === "discover" ? <DiscoverView session={embySession} /> : null}
           {view === "search" ? <SearchView session={embySession} /> : null}
           {view === "resume" ? <TimelineView session={embySession} kind="resume" /> : null}
           {view === "latest" ? <TimelineView session={embySession} kind="latest" /> : null}

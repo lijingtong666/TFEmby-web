@@ -297,6 +297,12 @@ type ChartFilters = {
   genre?: number;
 };
 
+export type DiscoverFilters = ChartFilters & {
+  language?: string;
+  minScore?: number;
+  sort?: "popular-desc" | "popular-asc" | "score-desc" | "release-desc" | "release-asc";
+};
+
 function chartSort(chart: string) {
   return chart.includes("top-rated") ? "vote_average.desc" : "popularity.desc";
 }
@@ -318,6 +324,50 @@ async function fetchDiscoverPage(mediaType: "movie" | "tv", chart: string, filte
   const data = (await response.json()) as TmdbResponse;
   const results = (data.results || []).map((item) => ({ ...item, media_type: mediaType }));
   return { data, results };
+}
+
+function discoverSort(mediaType: "movie" | "tv", sort: DiscoverFilters["sort"]) {
+  if (sort === "popular-asc") return "popularity.asc";
+  if (sort === "score-desc") return "vote_average.desc";
+  if (sort === "release-asc") return mediaType === "tv" ? "first_air_date.asc" : "primary_release_date.asc";
+  if (sort === "release-desc") return mediaType === "tv" ? "first_air_date.desc" : "primary_release_date.desc";
+  return "popularity.desc";
+}
+
+export async function discoverTmdb(mediaType: "movie" | "tv", filters: DiscoverFilters = {}): Promise<ChartPage> {
+  const page = Math.min(30, Math.max(1, filters.page || 1));
+  if (!config.tmdbApiKey && !config.tmdbBearerToken) {
+    const demo = fallback("discover", page, mediaType, filters.year, filters.genre);
+    const items = filters.minScore ? demo.items.filter((item) => (item.voteAverage || 0) >= filters.minScore!) : demo.items;
+    return { ...demo, items, totalResults: items.length };
+  }
+
+  try {
+    const response = await tmdbRequest(`discover/${mediaType}`, (endpoint) => {
+      endpoint.searchParams.set("page", String(page));
+      endpoint.searchParams.set("sort_by", discoverSort(mediaType, filters.sort));
+      endpoint.searchParams.set("include_adult", "false");
+      if (mediaType === "tv") endpoint.searchParams.set("include_null_first_air_dates", "false");
+      if (filters.genre) endpoint.searchParams.set("with_genres", String(filters.genre));
+      if (filters.language) endpoint.searchParams.set("with_original_language", filters.language);
+      if (filters.minScore) endpoint.searchParams.set("vote_average.gte", String(filters.minScore));
+      if (filters.minScore || filters.sort === "score-desc") endpoint.searchParams.set("vote_count.gte", "50");
+      if (filters.year) endpoint.searchParams.set(mediaType === "tv" ? "first_air_date_year" : "primary_release_year", String(filters.year));
+    });
+    if (!response.ok) return fallback("discover", page, mediaType, filters.year, filters.genre);
+    const data = (await response.json()) as TmdbResponse;
+    const items = (data.results || [])
+      .slice(0, 20)
+      .map((item, index) => toChartItem({ ...item, media_type: mediaType }, "discover", (page - 1) * 20 + index + 1));
+    return {
+      items,
+      page,
+      totalPages: Math.min(30, Math.max(1, data.total_pages || 1)),
+      totalResults: data.total_results || items.length
+    };
+  } catch {
+    return fallback("discover", page, mediaType, filters.year, filters.genre);
+  }
 }
 
 export async function fetchTmdbChart(chart: string, media = "all", period = "week", filters: ChartFilters = {}): Promise<ChartPage> {
