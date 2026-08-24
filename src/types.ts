@@ -124,6 +124,7 @@ export type TelegramIntegration = {
   status: {
     version?: string;
     running?: boolean;
+    telegramRunning?: boolean;
     lastTickAt?: string | null;
     lastScanAt?: string | null;
     lastWebhookAt?: string | null;

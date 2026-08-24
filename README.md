@@ -26,7 +26,7 @@ TFEmby Web 的主要程序文件和默认配置都随 Docker 镜像发布，用�
 
 ### Telegram 通知
 
-部署会同时使用 `xiaotong378/tgbot:1.1.5`。该镜像支持 `amd64` 和 `arm64`，负责 Emby Webhook、备用入库扫描、TMDB/豆瓣补全、封面和 Telegram 入库通知。管理后台会把共用配置同步给机器人，用于发送：
+项目已内置 [TGBot](https://github.com/lijingtong666/TGBot) `v1.1.6` 源码，位于 `tgbot/`。Web 服务和机器人服务使用同一个 `xiaotong378/tfembyweb:latest` 镜像，以两个独立容器运行；机器人负责 Emby Webhook、备用入库扫描、TMDB/豆瓣补全、封面、Telegram 入库通知和 `/recent` 最近入库菜单。管理后台会把共用配置同步给机器人，用于发送：
 
 - 用户提交新的求片申请：通知中包含 Emby 用户名、影片名称、电影/剧集类型、年份、TMDB ID 和详情链接
 - 管理员更新申请状态
@@ -51,8 +51,12 @@ docker run -d \
   --network tfemby-net \
   --restart unless-stopped \
   -p 8099:8099 \
-  -v tfemby-tgbot-data:/app/data \
-  xiaotong378/tgbot:1.1.5
+  -v tfemby-tgbot-data:/app/tgbot/data \
+  -e APP_VERSION=1.1.6 \
+  -e HOST=0.0.0.0 \
+  -e PORT=8099 \
+  xiaotong378/tfembyweb:latest \
+  python3 /app/tgbot/app.py
 ```
 
 启动 TFEmby Web：
@@ -90,7 +94,7 @@ docker rm -f tfemby-web
 docker compose -f docker-compose.nas.yml up -d
 ```
 
-该命令会自动拉取并启动 TFEmby Web 与 `xiaotong378/tgbot:1.1.5` 两个容器。
+该命令只需拉取一次 `xiaotong378/tfembyweb:latest`，然后分别启动 Web 与内置机器人两个容器。
 
 查看日志：
 
@@ -136,12 +140,26 @@ Docker 方式：
 
 ```bash
 docker pull xiaotong378/tfembyweb:latest
-docker rm -f tfemby-web
+docker rm -f tfemby-web tfemby-tgbot
+docker network create tfemby-net
+docker run -d \
+  --name tfemby-tgbot \
+  --network tfemby-net \
+  --restart unless-stopped \
+  -p 8099:8099 \
+  -v tfemby-tgbot-data:/app/tgbot/data \
+  -e APP_VERSION=1.1.6 \
+  -e HOST=0.0.0.0 \
+  -e PORT=8099 \
+  xiaotong378/tfembyweb:latest \
+  python3 /app/tgbot/app.py
 docker run -d \
   --name tfemby-web \
+  --network tfemby-net \
   --restart unless-stopped \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
+  -e TGBOT_URL=http://tfemby-tgbot:8099 \
   xiaotong378/tfembyweb:latest
 ```
 
@@ -164,7 +182,7 @@ linux/arm64
 推送包含两个架构的 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.2.0 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.2.1 ./scripts/docker-buildx-push.sh
 ```
 
 生成的 tag：

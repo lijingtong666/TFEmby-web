@@ -14,16 +14,28 @@ services:
       - tfemby-web-data:/data
     restart: unless-stopped
     depends_on:
-      - tgbot
+      tgbot:
+        condition: service_healthy
 
   tgbot:
-    image: xiaotong378/tgbot:1.1.5
+    image: xiaotong378/tfembyweb:latest
     container_name: tfemby-tgbot
+    command: ["python3", "/app/tgbot/app.py"]
     ports:
       - "8099:8099"
+    environment:
+      - APP_VERSION=1.1.6
+      - HOST=0.0.0.0
+      - PORT=8099
     volumes:
-      - tfemby-tgbot-data:/app/data
+      - tfemby-tgbot-data:/app/tgbot/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8099/api/status', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   tfemby-web-data:

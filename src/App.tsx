@@ -399,7 +399,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.2.0"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.2.1"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -1010,6 +1010,7 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
             </div>
             <div className="telegramMeta">
               <span>{telegram.data.directConfigured ? "求片通知已配置" : "未配置 Bot Token / Chat ID"}</span>
+              {telegram.data.status?.telegramRunning ? <span>Telegram 菜单监听中</span> : null}
               {telegram.data.status?.seenCount !== undefined ? <span>已记录 {telegram.data.status.seenCount}</span> : null}
               {telegram.data.status?.lastSummary ? <span>{telegram.data.status.lastSummary}</span> : null}
             </div>
