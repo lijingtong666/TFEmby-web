@@ -263,16 +263,10 @@ function LoginPanel({
   onLogin: (session: UserSession) => void;
   onLogout: () => void;
 }) {
-  const [mode, setMode] = useState<"emby" | "admin">("emby");
-  const [serverUrl, setServerUrl] = useState(config?.embyServerUrl || "");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (config?.embyServerUrl && !serverUrl) setServerUrl(config.embyServerUrl);
-  }, [config?.embyServerUrl, serverUrl]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -281,10 +275,8 @@ function LoginPanel({
     try {
       if (config?.requiresSetup) {
         onLogin(await api.setup(username, password));
-      } else if (mode === "admin") {
-        onLogin(await api.loginLocal(username, password));
       } else {
-        onLogin(await api.loginEmby(serverUrl, username, password));
+        onLogin(await api.login(username, password));
       }
       setPassword("");
     } catch (err) {
@@ -300,7 +292,7 @@ function LoginPanel({
     setBusy(true);
     setError("");
     try {
-      onLogin(await api.linkEmby(session, serverUrl, username, password));
+      onLogin(await api.linkEmby(session, username, password));
       setPassword("");
     } catch (err) {
       setError((err as Error).message);
@@ -326,7 +318,6 @@ function LoginPanel({
         {session.role === "admin" && !session.emby ? (
           <form className="loginBox" onSubmit={linkEmby}>
             <div className="loginHint">关联 Emby 后读取最近入库</div>
-            <input value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} placeholder="Emby 地址" />
             <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Emby 用户名" />
             <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Emby 密码" type="password" />
             {error ? <div className="errorText">{error}</div> : null}
@@ -343,20 +334,7 @@ function LoginPanel({
   const setup = Boolean(config?.requiresSetup);
   return (
     <form className="loginBox" onSubmit={submit}>
-      {!setup ? (
-        <div className="loginTabs">
-          <button type="button" className={mode === "emby" ? "active" : ""} onClick={() => setMode("emby")}>
-            <LogIn size={15} />
-            Emby
-          </button>
-          <button type="button" className={mode === "admin" ? "active" : ""} onClick={() => setMode("admin")}>
-            <ShieldCheck size={15} />
-            管理员
-          </button>
-        </div>
-      ) : null}
       {setup ? <div className="loginHint">首次使用请创建管理员账户</div> : null}
-      {!setup && mode === "emby" ? <input value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} placeholder="Emby 地址" /> : null}
       <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder={setup ? "管理员用户名" : "用户名"} />
       <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="密码" type="password" />
       {error ? <div className="errorText">{error}</div> : null}
@@ -412,7 +390,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.0"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.1"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -1195,6 +1173,7 @@ export function App() {
   function handleLogin(next: UserSession) {
     setSession(next);
     saveSession(next);
+    setView(next.role === "admin" ? "admin" : "overview");
     api.config().then(setConfig).catch(() => undefined);
   }
 

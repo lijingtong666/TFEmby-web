@@ -64,20 +64,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ username, password })
     }),
-  loginLocal: (username: string, password: string) =>
+  login: (username: string, password: string) =>
     request<UserSession>("/api/auth/login", null, {
       method: "POST",
       body: JSON.stringify({ username, password })
     }),
-  loginEmby: (serverUrl: string, username: string, password: string) =>
-    request<UserSession>("/api/auth/emby", null, {
-      method: "POST",
-      body: JSON.stringify({ serverUrl, username, password })
-    }),
-  linkEmby: (session: UserSession, serverUrl: string, username: string, password: string) =>
+  linkEmby: (session: UserSession, username: string, password: string) =>
     request<UserSession>("/api/auth/link-emby", session, {
       method: "POST",
-      body: JSON.stringify({ serverUrl, username, password })
+      body: JSON.stringify({ username, password })
     }),
   stats: (session: EmbySession) =>
     request<{ movies: number; series: number; played: number; resume: number; latest: number }>("/api/emby/stats", session),

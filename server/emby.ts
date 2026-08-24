@@ -47,7 +47,9 @@ function normalizeServer(serverUrl?: string) {
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(text || `${response.status} ${response.statusText}`);
+    const error = new Error(text || `${response.status} ${response.statusText}`);
+    (error as Error & { status?: number }).status = response.status;
+    throw error;
   }
   return text ? (JSON.parse(text) as T) : ({} as T);
 }

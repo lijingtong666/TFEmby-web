@@ -163,7 +163,35 @@ app.post(
   "/api/auth/login",
   asyncRoute(async (req, res) => {
     const { username, password } = req.body || {};
-    res.json(await loginLocal(String(username || ""), String(password || "")));
+    const cleanUsername = String(username || "").trim();
+    const cleanPassword = String(password || "");
+    if (!cleanUsername || !cleanPassword) {
+      res.status(400).json({ error: "用户名和密码不能为空。" });
+      return;
+    }
+
+    try {
+      res.json(await loginLocal(cleanUsername, cleanPassword));
+      return;
+    } catch (error) {
+      if ((error as Error & { status?: number }).status !== 401) throw error;
+    }
+
+    if (!config.embyServerUrl) {
+      res.status(401).json({ error: "用户名或密码错误，且管理员尚未配置 Emby 服务器。" });
+      return;
+    }
+
+    try {
+      const emby = await loginToEmby(config.embyServerUrl, cleanUsername, cleanPassword);
+      res.json(await loginWithEmby(emby));
+    } catch (error) {
+      if ((error as Error & { status?: number }).status === 401) {
+        res.status(401).json({ error: "用户名或密码错误。" });
+        return;
+      }
+      throw error;
+    }
   })
 );
 
@@ -184,12 +212,12 @@ app.post(
   "/api/auth/link-emby",
   asyncRoute(async (req, res) => {
     const session = requireAppSession(req);
-    const { serverUrl, username, password } = req.body || {};
+    const { username, password } = req.body || {};
     if (!username || !password) {
       res.status(400).json({ error: "用户名和密码不能为空。" });
       return;
     }
-    const emby = await loginToEmby(serverUrl, username, password);
+    const emby = await loginToEmby(config.embyServerUrl, username, password);
     res.json(await linkEmbyUser(session.userId, emby));
   })
 );

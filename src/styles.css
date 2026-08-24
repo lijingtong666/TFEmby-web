@@ -202,35 +202,6 @@ nav button.active {
   gap: 8px;
 }
 
-.loginTabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
-}
-
-.loginTabs button {
-  min-width: 0;
-  height: 34px;
-  border: 0;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  color: var(--muted);
-  background: transparent;
-}
-
-.loginTabs button.active {
-  color: var(--text);
-  background: var(--surface);
-  box-shadow: 0 4px 14px rgba(26, 24, 21, 0.06);
-}
-
 .loginHint {
   padding: 9px 10px;
   border: 1px solid var(--line);
@@ -1147,25 +1118,6 @@ nav button.active::after {
 .loginBox {
   padding: 12px;
   gap: 9px;
-}
-
-.loginTabs {
-  gap: 4px;
-  padding: 4px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--surface-soft);
-}
-
-.loginTabs button {
-  height: 36px;
-  border-radius: 11px;
-}
-
-.loginTabs button.active {
-  color: var(--brand-strong);
-  background: var(--surface);
-  box-shadow: 0 4px 12px rgba(25, 40, 70, 0.08);
 }
 
 .loginHint {
