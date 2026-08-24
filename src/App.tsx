@@ -4,7 +4,6 @@ import {
   BellRing,
   Bot,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clapperboard,
@@ -59,20 +58,69 @@ const requestStatus: Record<RequestStatus, string> = {
   rejected: "已拒绝"
 };
 
-const chartOptions = [
-  { label: "TMDB 全球趋势", source: "tmdb", chart: "global", media: "all", period: "week", icon: <Flame size={18} /> },
-  { label: "TMDB 热门电影", source: "tmdb", chart: "movie-popular", media: "movie", period: "week", icon: <Clapperboard size={18} /> },
-  { label: "TMDB 热门剧集", source: "tmdb", chart: "tv-popular", media: "tv", period: "week", icon: <Tv size={18} /> },
-  { label: "TMDB 高分电影", source: "tmdb", chart: "movie-top-rated", media: "movie", period: "week", icon: <Star size={18} /> },
-  { label: "TMDB 高分剧集", source: "tmdb", chart: "tv-top-rated", media: "tv", period: "week", icon: <Star size={18} /> },
-  { label: "影院热映", source: "tmdb", chart: "now-playing", media: "movie", period: "week", icon: <Clapperboard size={18} /> },
-  { label: "TMDB 电影月榜", source: "tmdb", chart: "monthly", media: "movie", period: "month", icon: <Library size={18} /> },
-  { label: "TMDB 剧集月榜", source: "tmdb", chart: "monthly", media: "tv", period: "month", icon: <Library size={18} /> },
-  { label: "豆瓣电影周榜", source: "douban", chart: "weekly", media: "movie", period: "week", icon: <Flame size={18} /> },
-  { label: "豆瓣剧集周榜", source: "douban", chart: "weekly", media: "tv", period: "week", icon: <Tv size={18} /> },
-  { label: "豆瓣电影月榜", source: "douban", chart: "monthly", media: "movie", period: "month", icon: <Library size={18} /> },
-  { label: "豆瓣剧集月榜", source: "douban", chart: "monthly", media: "tv", period: "month", icon: <Library size={18} /> },
-  { label: "豆瓣 TOP250", source: "douban", chart: "top250", media: "movie", period: "all", icon: <Star size={18} /> }
+type ChartSection = {
+  id: string;
+  label: string;
+  source: "tmdb" | "douban";
+  chart: string;
+  media: "all" | "movie" | "tv";
+  period: "day" | "week" | "month" | "all";
+  genre?: string;
+};
+
+type ChartTab = "all" | "movies" | "tv" | "animation" | "rankings";
+
+const chartSections = {
+  global: { id: "global", label: "全球流行趋势", source: "tmdb", chart: "global", media: "all", period: "week" },
+  nowPlaying: { id: "now-playing", label: "正在热映", source: "tmdb", chart: "now-playing", media: "movie", period: "week" },
+  moviePopular: { id: "movie-popular", label: "TMDB 热门电影", source: "tmdb", chart: "movie-popular", media: "movie", period: "week" },
+  tvPopular: { id: "tv-popular", label: "TMDB 热门电视剧", source: "tmdb", chart: "tv-popular", media: "tv", period: "week" },
+  movieTop: { id: "movie-top", label: "TMDB 高分电影", source: "tmdb", chart: "movie-top-rated", media: "movie", period: "week" },
+  tvTop: { id: "tv-top", label: "TMDB 高分电视剧", source: "tmdb", chart: "tv-top-rated", media: "tv", period: "week" },
+  movieMonthly: { id: "movie-monthly", label: "TMDB 电影月榜", source: "tmdb", chart: "monthly", media: "movie", period: "month" },
+  tvMonthly: { id: "tv-monthly", label: "TMDB 剧集月榜", source: "tmdb", chart: "monthly", media: "tv", period: "month" },
+  doubanMovieWeekly: { id: "douban-movie-weekly", label: "豆瓣电影周榜", source: "douban", chart: "weekly", media: "movie", period: "week" },
+  doubanTvWeekly: { id: "douban-tv-weekly", label: "豆瓣剧集周榜", source: "douban", chart: "weekly", media: "tv", period: "week" },
+  doubanMovieMonthly: { id: "douban-movie-monthly", label: "豆瓣电影月榜", source: "douban", chart: "monthly", media: "movie", period: "month" },
+  doubanTvMonthly: { id: "douban-tv-monthly", label: "豆瓣剧集月榜", source: "douban", chart: "monthly", media: "tv", period: "month" },
+  doubanTop250: { id: "douban-top250", label: "豆瓣电影 TOP250", source: "douban", chart: "top250", media: "movie", period: "all" },
+  animationMovies: { id: "animation-movies", label: "TMDB 热门动画电影", source: "tmdb", chart: "movie-popular", media: "movie", period: "week", genre: "16" },
+  animationMovieTop: { id: "animation-movie-top", label: "TMDB 高分动画电影", source: "tmdb", chart: "movie-top-rated", media: "movie", period: "week", genre: "16" },
+  animationTv: { id: "animation-tv", label: "TMDB 热门动画剧集", source: "tmdb", chart: "tv-popular", media: "tv", period: "week", genre: "16" },
+  animationTvTop: { id: "animation-tv-top", label: "TMDB 高分动画剧集", source: "tmdb", chart: "tv-top-rated", media: "tv", period: "week", genre: "16" }
+} satisfies Record<string, ChartSection>;
+
+const chartTabs: Array<{ key: ChartTab; label: string; icon: ReactNode; sections: ChartSection[] }> = [
+  {
+    key: "all",
+    label: "全部",
+    icon: <Library size={19} />,
+    sections: [chartSections.global, chartSections.nowPlaying, chartSections.moviePopular, chartSections.tvPopular, chartSections.doubanTop250]
+  },
+  {
+    key: "movies",
+    label: "电影",
+    icon: <Clapperboard size={19} />,
+    sections: [chartSections.nowPlaying, chartSections.moviePopular, chartSections.movieTop, chartSections.movieMonthly, chartSections.doubanMovieWeekly, chartSections.doubanMovieMonthly, chartSections.doubanTop250]
+  },
+  {
+    key: "tv",
+    label: "电视剧",
+    icon: <Tv size={19} />,
+    sections: [chartSections.tvPopular, chartSections.tvTop, chartSections.tvMonthly, chartSections.doubanTvWeekly, chartSections.doubanTvMonthly]
+  },
+  {
+    key: "animation",
+    label: "动画",
+    icon: <Layers3 size={19} />,
+    sections: [chartSections.animationMovies, chartSections.animationMovieTop, chartSections.animationTv, chartSections.animationTvTop]
+  },
+  {
+    key: "rankings",
+    label: "榜单",
+    icon: <Star size={19} />,
+    sections: [chartSections.global, chartSections.movieTop, chartSections.tvTop, chartSections.doubanTop250]
+  }
 ];
 
 const movieGenres = [
@@ -173,6 +221,67 @@ function ChartCard({ item, onOpen }: { item: ChartItem; onOpen: () => void }) {
         </div>
       )}
     </article>
+  );
+}
+
+function ShelfCard({ item, onOpen }: { item: ChartItem; onOpen: () => void }) {
+  const status = item.libraryStatus;
+  return (
+    <article
+      className="shelfCard"
+      role="button"
+      tabIndex={0}
+      aria-label={`查看《${item.title}》详情`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <div className="shelfPoster">
+        <Poster item={item} />
+        <span className="shelfMediaType">{item.mediaType === "tv" ? "电视剧" : "电影"}</span>
+        <span className="shelfScore"><Star size={12} fill="currentColor" />{item.voteAverage ? item.voteAverage.toFixed(1) : "N/A"}</span>
+        {status?.inLibrary ? (
+          <span className={`shelfLibraryState ${status.watched ? "watched" : ""}`}>
+            <CheckCircle2 size={12} />{status.watched ? "已看" : "已入库"}
+          </span>
+        ) : null}
+      </div>
+      <strong title={item.title}>{item.title}</strong>
+      <span>{item.year || "年份未知"} · #{item.rank}</span>
+    </article>
+  );
+}
+
+function ChartShelf({ section, session, onMore, onOpen }: { section: ChartSection; session: EmbySession | null; onMore: () => void; onOpen: (item: ChartItem) => void }) {
+  const { data, loading, error } = useAsync(
+    () => api.chart(section.source, section.chart, section.media, section.period, 1, "", section.genre || "", session),
+    [section.source, section.chart, section.media, section.period, section.genre, session?.accessToken],
+    emptyChartPage
+  );
+
+  return (
+    <section className="chartShelf">
+      <div className="shelfHead">
+        <h2>{section.label}</h2>
+        <button type="button" onClick={onMore}>更多<ChevronRight size={17} /></button>
+      </div>
+      {error ? <div className="shelfNotice">{error}</div> : null}
+      {loading ? (
+        <div className="shelfTrack shelfLoading" aria-label={`${section.label}加载中`}>
+          {Array.from({ length: 10 }, (_, index) => <div className="shelfSkeleton" key={index} />)}
+        </div>
+      ) : data.items.length ? (
+        <div className="shelfTrack">
+          {data.items.map((item) => (
+            <ShelfCard key={`${item.source}-${item.externalIds.tmdb || item.externalIds.douban || item.rank}-${item.title}`} item={item} onOpen={() => onOpen(item)} />
+          ))}
+        </div>
+      ) : !error ? <div className="shelfNotice">当前榜单暂无内容。</div> : null}
+    </section>
   );
 }
 
@@ -517,7 +626,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.7"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.8"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -554,53 +663,26 @@ function Topbar({
   );
 }
 
-function ChartView({ session }: { session: EmbySession | null }) {
-  const [selected, setSelected] = useState(chartOptions[0]);
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState<ChartItem | null>(null);
+function FocusedChartView({ selected, session, onBack, onOpen }: { selected: ChartSection; session: EmbySession | null; onBack: () => void; onOpen: (item: ChartItem) => void }) {
   const [page, setPage] = useState(1);
   const [year, setYear] = useState("");
-  const [genre, setGenre] = useState("");
+  const [genre, setGenre] = useState(selected.genre || "");
   const genreOptions = selected.media === "tv" ? tvGenres : movieGenres;
   const years = useMemo(() => Array.from({ length: new Date().getFullYear() - 1949 }, (_, index) => new Date().getFullYear() - index), []);
   const { data, loading, error } = useAsync(
     () => api.chart(selected.source, selected.chart, selected.media, selected.period, page, year, genre, session),
-    [selected, page, year, genre, session?.accessToken],
+    [selected.source, selected.chart, selected.media, selected.period, page, year, genre, session?.accessToken],
     emptyChartPage
   );
   const pages = pageNumbers(data.page, data.totalPages);
 
   return (
-    <section className="panel">
-      <div className="sectionHead">
+    <>
+      <div className="chartFocusHead">
+        <button type="button" className="chartBack" onClick={onBack} title="返回热榜" aria-label="返回热榜"><ChevronLeft size={20} /></button>
         <div>
-          <h1>全网热榜</h1>
-          <p>近期大家都在看什么</p>
-        </div>
-        <div className="selectWrap">
-          <button className="selectBtn" onClick={() => setOpen(!open)}>
-            {selected.icon}
-            <span>{selected.label}</span>
-            <ChevronDown size={17} />
-          </button>
-          {open ? (
-            <div className="menuList">
-              {chartOptions.map((option) => (
-                <button
-                  key={`${option.source}-${option.chart}-${option.media}-${option.period}`}
-                  onClick={() => {
-                    setSelected(option);
-                    setPage(1);
-                    setGenre("");
-                    setOpen(false);
-                  }}
-                >
-                  {option.icon}
-                  <span>{option.label}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+          <h1>{selected.label}</h1>
+          <p>按年份和类型浏览完整榜单</p>
         </div>
       </div>
       <div className="chartToolbar">
@@ -624,7 +706,7 @@ function ChartView({ session }: { session: EmbySession | null }) {
         </div>
       </div>
       {error ? <div className="notice">{error}</div> : null}
-      {loading ? <div className="loadingGrid" /> : data.items.length ? <div className="grid">{data.items.map((item) => <ChartCard key={`${item.source}-${item.rank}-${item.title}`} item={item} onOpen={() => setDetail(item)} />)}</div> : <div className="notice">当前筛选条件下暂无榜单内容。</div>}
+      {loading ? <div className="loadingGrid" /> : data.items.length ? <div className="grid chartGrid">{data.items.map((item) => <ChartCard key={`${item.source}-${item.rank}-${item.title}`} item={item} onOpen={() => onOpen(item)} />)}</div> : <div className="notice">当前筛选条件下暂无榜单内容。</div>}
       {data.totalPages > 1 ? (
         <nav className="pagination" aria-label="热榜分页">
           <button type="button" className="pageArrow" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} title="上一页" aria-label="上一页"><ChevronLeft size={19} /></button>
@@ -637,6 +719,49 @@ function ChartView({ session }: { session: EmbySession | null }) {
           <button type="button" className="pageArrow" disabled={page >= data.totalPages || loading} onClick={() => setPage((current) => Math.min(data.totalPages, current + 1))} title="下一页" aria-label="下一页"><ChevronRight size={19} /></button>
         </nav>
       ) : null}
+    </>
+  );
+}
+
+function ChartView({ session }: { session: EmbySession | null }) {
+  const [activeTab, setActiveTab] = useState<ChartTab>("all");
+  const [focused, setFocused] = useState<ChartSection | null>(null);
+  const [detail, setDetail] = useState<ChartItem | null>(null);
+  const currentTab = chartTabs.find((tab) => tab.key === activeTab) || chartTabs[0];
+
+  return (
+    <section className="panel chartsPanel">
+      {focused ? (
+        <FocusedChartView key={focused.id} selected={focused} session={session} onBack={() => setFocused(null)} onOpen={setDetail} />
+      ) : (
+        <>
+          <div className="chartsIntro">
+            <div>
+              <h1>全网热榜</h1>
+              <p>发现近期热门电影、剧集与高分榜单</p>
+            </div>
+          </div>
+          <div className="chartTabs" role="tablist" aria-label="热榜分类">
+            {chartTabs.map((tab) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                className={activeTab === tab.key ? "active" : ""}
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.icon}<span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="chartShelves">
+            {currentTab.sections.map((section) => (
+              <ChartShelf key={section.id} section={section} session={session} onMore={() => setFocused(section)} onOpen={setDetail} />
+            ))}
+          </div>
+        </>
+      )}
       <ChartDetail item={detail} session={session} onClose={() => setDetail(null)} />
     </section>
   );
@@ -1500,7 +1625,7 @@ export function App() {
       <Sidebar view={view} setView={setView} open={sidebarOpen} setOpen={setSidebarOpen} config={config} session={session} onLogin={handleLogin} onLogout={handleLogout} />
       <main>
         <Topbar onMenu={() => setSidebarOpen(true)} dark={dark} setDark={setDark} onRefresh={() => setView((current) => current)} />
-        <div className="content" key={refreshToken}>
+        <div className={`content ${view === "charts" ? "chartsContent" : ""}`} key={refreshToken}>
           {view === "overview" ? <Overview session={embySession} /> : null}
           {view === "charts" ? <ChartView session={embySession} /> : null}
           {view === "search" ? <SearchView session={embySession} /> : null}

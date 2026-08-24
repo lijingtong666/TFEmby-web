@@ -2271,12 +2271,315 @@ h2 {
   }
 }
 
+.content.chartsContent {
+  width: 100%;
+  max-width: none;
+  padding-inline: clamp(20px, 3vw, 46px);
+}
+
+.chartsPanel {
+  border: 0;
+  border-radius: 0;
+  padding: 8px 0 28px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chartsIntro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.chartsIntro h1,
+.chartFocusHead h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.chartsIntro p,
+.chartFocusHead p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.chartTabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 30px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chartTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.chartTabs button {
+  position: relative;
+  width: auto;
+  min-width: max-content;
+  min-height: 46px;
+  flex: 0 0 auto;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.chartTabs button:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+}
+
+.chartTabs button.active {
+  color: var(--brand-strong);
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
+}
+
+.chartTabs button.active::after {
+  content: "";
+  position: absolute;
+  inset: auto 14px -2px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.chartShelves {
+  display: grid;
+  gap: 34px;
+}
+
+.chartShelf {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.shelfHead {
+  min-height: 34px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.shelfHead h2 {
+  position: relative;
+  margin: 0;
+  padding-left: 14px;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.shelfHead h2::before {
+  content: "";
+  position: absolute;
+  inset: 3px auto 3px 0;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent), var(--brand));
+}
+
+.shelfHead button {
+  width: auto;
+  min-width: max-content;
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 0 3px 0 10px;
+  border: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: transparent;
+  color: var(--brand-strong);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.shelfHead button:hover {
+  background: color-mix(in srgb, var(--brand) 7%, transparent);
+}
+
+.shelfTrack {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: clamp(12px, 1.2vw, 20px);
+  overflow: hidden;
+}
+
+.shelfCard,
+.shelfSkeleton {
+  width: 9rem;
+  flex: 0 0 9rem;
+}
+
+.shelfCard {
+  min-width: 0;
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+}
+
+.shelfCard:focus-visible .shelfPoster {
+  outline: 3px solid color-mix(in srgb, var(--brand) 30%, transparent);
+  outline-offset: 3px;
+}
+
+.shelfPoster {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface-soft);
+  box-shadow: 0 10px 26px rgba(24, 34, 51, 0.1);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.shelfPoster .poster {
+  height: 100%;
+  border-radius: inherit;
+}
+
+.shelfCard:hover .shelfPoster {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 32px rgba(24, 34, 51, 0.16);
+}
+
+.shelfMediaType,
+.shelfScore,
+.shelfLibraryState {
+  position: absolute;
+  z-index: 2;
+  min-height: 25px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  backdrop-filter: blur(9px);
+}
+
+.shelfMediaType {
+  top: 8px;
+  left: 8px;
+  background: rgba(22, 119, 255, 0.82);
+}
+
+.shelfScore {
+  top: 8px;
+  right: 8px;
+  background: rgba(119, 65, 190, 0.88);
+}
+
+.shelfScore svg {
+  color: #ffe07b;
+}
+
+.shelfLibraryState {
+  left: 8px;
+  bottom: 8px;
+  background: rgba(22, 131, 87, 0.88);
+}
+
+.shelfLibraryState.watched {
+  background: rgba(25, 38, 55, 0.84);
+}
+
+.shelfCard > strong {
+  min-width: 0;
+  min-height: 39px;
+  margin-top: 9px;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.shelfCard > span {
+  margin-top: 3px;
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.shelfSkeleton {
+  height: calc(13.5rem + 58px);
+  border-radius: 16px;
+  background:
+    linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--surface) 58%, transparent) 48%, transparent 66%) 0 0 / 220% 100%,
+    color-mix(in srgb, var(--line) 55%, var(--surface-soft));
+  animation: shimmer 1.15s infinite linear;
+}
+
+.shelfNotice {
+  min-height: 120px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-soft) 74%, transparent);
+}
+
+.chartFocusHead {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.chartBack {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 7px 20px rgba(27, 37, 55, 0.06);
+}
+
+.chartBack:hover {
+  border-color: color-mix(in srgb, var(--brand) 26%, var(--line));
+  color: var(--brand-strong);
+}
+
 .chartCard {
   cursor: pointer;
 }
 
 .chartToolbar {
-  margin: -8px 0 24px;
+  margin: 0 0 24px;
   padding: 13px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -2830,6 +3133,86 @@ h2 {
 }
 
 @media (max-width: 640px) {
+  .content.chartsContent {
+    padding-inline: 14px;
+  }
+
+  .chartsPanel {
+    padding: 4px 0 24px;
+  }
+
+  .chartsIntro {
+    margin-bottom: 12px;
+  }
+
+  .chartsIntro h1,
+  .chartFocusHead h1 {
+    font-size: 24px;
+  }
+
+  .chartTabs {
+    margin: 0 -2px 24px;
+    gap: 3px;
+  }
+
+  .chartTabs button {
+    min-height: 43px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  .chartShelves {
+    gap: 28px;
+  }
+
+  .shelfHead {
+    margin-bottom: 12px;
+  }
+
+  .shelfHead h2 {
+    font-size: 18px;
+  }
+
+  .shelfTrack {
+    margin-right: -14px;
+    padding: 2px 14px 8px 0;
+    gap: 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+
+  .shelfTrack::-webkit-scrollbar {
+    display: none;
+  }
+
+  .shelfCard,
+  .shelfSkeleton {
+    width: 8.15rem;
+    flex-basis: 8.15rem;
+    scroll-snap-align: start;
+  }
+
+  .shelfSkeleton {
+    height: calc(12.225rem + 54px);
+  }
+
+  .shelfCard:hover .shelfPoster {
+    transform: none;
+  }
+
+  .shelfMediaType,
+  .shelfScore,
+  .shelfLibraryState {
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+
+  .chartFocusHead {
+    margin-bottom: 20px;
+  }
+
   .chartToolbar {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
