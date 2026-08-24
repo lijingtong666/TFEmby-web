@@ -101,7 +101,7 @@ function useAsync<T>(loader: () => Promise<T>, deps: unknown[], initial: T) {
 
 function formatDate(value?: string) {
   if (!value) return "";
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(new Date(value));
+  return new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit" }).format(new Date(value));
 }
 
 function Poster({ item, compact = false }: { item: MediaItem | ChartItem | MediaRequest; compact?: boolean }) {
@@ -392,7 +392,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.3"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.4"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -952,7 +952,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       <div className="settingsStatus">
         <div>
           <strong>系统设置</strong>
-          <span>配置保存在数据卷中，保存后立即生效</span>
+          <span>配置保存在数据卷中，保存后立即生效 · 时区：Asia/Shanghai（北京时间）</span>
         </div>
         <span className={`connectionPill ${draft.notificationReady ? "online" : ""}`}>
           <span />{draft.notificationReady ? "通知服务已就绪" : "通知服务异常"}

@@ -3,6 +3,9 @@ import crypto from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+const defaultTimeZone = "Asia/Shanghai";
+process.env.TZ ||= defaultTimeZone;
+
 export type WebSettings = {
   appName: string;
   embyServerUrl: string;
@@ -23,6 +26,7 @@ type RuntimeConfig = WebSettings & {
   embyDevice: string;
   embyDeviceId: string;
   version: string;
+  timeZone: string;
 };
 
 export function cleanBaseUrl(value: string) {
@@ -45,7 +49,8 @@ export const config: RuntimeConfig = {
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.6.3"
+  version: process.env.APP_VERSION || "0.6.4",
+  timeZone: process.env.TZ || defaultTimeZone
 };
 
 const settingsPath = path.resolve(config.dataDir, "settings.json");

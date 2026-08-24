@@ -9,6 +9,7 @@ services:
     environment:
       - PORT=8787
       - DATA_DIR=/data
+      - TZ=Asia/Shanghai
     volumes:
       - tfemby-web-data:/data
     restart: unless-stopped

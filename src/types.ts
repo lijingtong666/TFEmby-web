@@ -81,6 +81,7 @@ export type ChartItem = {
 export type AppConfig = {
   appName: string;
   version: string;
+  timeZone: string;
   embyServerUrl: string;
   tmdbEnabled: boolean;
   doubanEnabled: boolean;

@@ -70,6 +70,7 @@ Webhook 配置：
 docker run -d \
   --name tfemby-web \
   --restart unless-stopped \
+  -e TZ=Asia/Shanghai \
   -p 8787:8787 \
   -v tfemby-web-data:/data \
   xiaotong378/tfembyweb:latest
@@ -139,7 +140,7 @@ docker compose down
 发布唯一的多架构 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.6.3 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.6.4 ./scripts/docker-buildx-push.sh
 ```
 
 镜像平台：

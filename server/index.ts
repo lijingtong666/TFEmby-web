@@ -98,6 +98,7 @@ app.get("/api/config", asyncRoute(async (_req, res) => {
   res.json({
     appName: config.appName,
     version: config.version,
+    timeZone: config.timeZone,
     embyServerUrl: config.embyServerUrl,
     tmdbEnabled: Boolean(config.tmdbApiKey || config.tmdbBearerToken),
     doubanEnabled: Boolean(config.doubanApiBase),

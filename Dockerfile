@@ -13,10 +13,12 @@ RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate && pnpm 
 
 FROM node:20-alpine
 WORKDIR /app
-ARG APP_VERSION=0.6.3
+ARG APP_VERSION=0.6.4
+RUN apk add --no-cache tzdata
 ENV NODE_ENV=production
 ENV PORT=8787
 ENV DATA_DIR=/data
+ENV TZ=Asia/Shanghai
 ENV APP_VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.title="TFEmby Web"
 LABEL org.opencontainers.image.description="Emby media library web UI with native Telegram notifications"
