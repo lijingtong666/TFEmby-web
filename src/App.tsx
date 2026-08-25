@@ -678,7 +678,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.11"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.12"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -1196,6 +1196,7 @@ function RequestView({ session }: { session: UserSession | null }) {
   const [seasonMap, setSeasonMap] = useState<Record<string, TvSeason[]>>({});
   const [seasonLoading, setSeasonLoading] = useState("");
   const [seasonError, setSeasonError] = useState("");
+  const [updating, setUpdating] = useState("");
   const requests = useAsync(() => (session ? api.requests(session) : Promise.resolve([])), [session?.token], [] as MediaRequest[]);
 
   useEffect(() => {
@@ -1259,6 +1260,21 @@ function RequestView({ session }: { session: UserSession | null }) {
     }
   }
 
+  async function updateRequest(item: MediaRequest, status: RequestStatus) {
+    if (!session || session.role !== "admin") return;
+    setUpdating(item.id);
+    setError("");
+    setMessage("");
+    try {
+      await api.updateRequest(session, item.id, status);
+      await requests.reload();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUpdating("");
+    }
+  }
+
   const activeRequests = requests.data.filter((item) => item.status === "pending" || item.status === "approved");
   const fulfilledRequests = requests.data.filter((item) => item.status === "fulfilled");
   const rejectedRequests = requests.data.filter((item) => item.status === "rejected");
@@ -1284,7 +1300,17 @@ function RequestView({ session }: { session: UserSession | null }) {
       {session && activeRequests.length ? (
         <div className="requestSection">
           <div className="subhead"><h2>求片处理中</h2><span>{activeRequests.length} 条</span></div>
-          <div className="requestList">{activeRequests.map((item) => <RequestRow key={item.id} item={item} />)}</div>
+          <div className="requestList">
+            {activeRequests.map((item) => (
+              <RequestRow
+                key={item.id}
+                item={item}
+                admin={session.role === "admin"}
+                updating={updating === item.id}
+                onStatus={session.role === "admin" ? (status) => updateRequest(item, status) : undefined}
+              />
+            ))}
+          </div>
         </div>
       ) : null}
       {session && fulfilledRequests.length ? (

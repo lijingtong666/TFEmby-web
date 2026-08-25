@@ -1,5 +1,6 @@
 import "dotenv/config";
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -37,6 +38,16 @@ export function cleanBaseUrl(value: string) {
 
 const defaultTmdbApiBases = "https://api.themoviedb.org";
 const defaultTmdbImageBases = "https://image.tmdb.org";
+const fallbackVersion = "0.6.12";
+
+function packageVersion() {
+  try {
+    const packageJson = JSON.parse(readFileSync(path.resolve(process.cwd(), "package.json"), "utf8")) as { version?: unknown };
+    return String(packageJson.version || "").trim() || fallbackVersion;
+  } catch {
+    return fallbackVersion;
+  }
+}
 
 function splitUrlList(value: string) {
   return value.split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
@@ -84,7 +95,7 @@ export const config: RuntimeConfig = {
   embyClient: "TFEmby Web",
   embyDevice: "Web UI",
   embyDeviceId: process.env.EMBY_DEVICE_ID || "tfemby-web-browser",
-  version: process.env.APP_VERSION || "0.6.11",
+  version: packageVersion(),
   timeZone: process.env.TZ || defaultTimeZone
 };
 
