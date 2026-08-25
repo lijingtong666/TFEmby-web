@@ -55,7 +55,7 @@ const navItems: { key: View; label: string; icon: ReactNode; adminOnly?: boolean
 
 const requestStatus: Record<RequestStatus, string> = {
   pending: "待处理",
-  approved: "已接收",
+  approved: "已接受",
   fulfilled: "已入库",
   rejected: "已拒绝"
 };
@@ -678,7 +678,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.10"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.11"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -1036,6 +1036,7 @@ function TimelineView({ session, kind }: { session: EmbySession | null; kind: "r
 }
 
 function RequestRow({ item, admin, onStatus, updating }: { item: MediaRequest; admin?: boolean; onStatus?: (status: RequestStatus) => void; updating?: boolean }) {
+  const active = item.status === "pending" || item.status === "approved";
   return (
     <article className="requestRow">
       <Poster item={item} compact />
@@ -1047,15 +1048,22 @@ function RequestRow({ item, admin, onStatus, updating }: { item: MediaRequest; a
         <div className="requestMeta">
           <span>{item.mediaType === "tv" ? "剧集" : "电影"}</span>
           {item.seasonNumber ? <span>第 {item.seasonNumber} 季</span> : null}
+          {item.expectedEpisodeCount ? <span>共 {item.expectedEpisodeCount} 集</span> : null}
           <span>TMDB {item.tmdbId}</span>
           {item.year ? <span>{item.year}</span> : null}
           {admin ? <span>申请人：{item.requestedBy.username}</span> : null}
           <span>{formatDate(item.createdAt)}</span>
+          {item.fulfilledAt ? <span>入库：{formatDate(item.fulfilledAt)}</span> : null}
         </div>
-        {admin && onStatus ? (
-          <select className="statusSelect" value={item.status} disabled={updating} onChange={(event) => onStatus(event.target.value as RequestStatus)} aria-label={`更新 ${item.title} 的申请状态`}>
-            {Object.entries(requestStatus).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
+        {admin && onStatus && active ? (
+          <div className="requestDecisionActions">
+            <button type="button" className={`requestApprove ${item.status === "approved" ? "active" : ""}`} disabled={updating || item.status === "approved"} onClick={() => onStatus("approved")}>
+              <CheckCircle2 size={16} />{item.status === "approved" ? "已接受，等待入库" : updating ? "处理中" : "接受"}
+            </button>
+            <button type="button" className="requestReject" disabled={updating} onClick={() => onStatus("rejected")}>
+              <X size={16} />拒绝
+            </button>
+          </div>
         ) : null}
       </div>
     </article>
@@ -1251,6 +1259,10 @@ function RequestView({ session }: { session: UserSession | null }) {
     }
   }
 
+  const activeRequests = requests.data.filter((item) => item.status === "pending" || item.status === "approved");
+  const fulfilledRequests = requests.data.filter((item) => item.status === "fulfilled");
+  const rejectedRequests = requests.data.filter((item) => item.status === "rejected");
+
   return (
     <section className="panel">
       <div className="sectionHead">
@@ -1269,10 +1281,22 @@ function RequestView({ session }: { session: UserSession | null }) {
       ) : null}
       {error || requests.error ? <div className="notice">{error || requests.error}</div> : null}
       {message ? <div className="successText">{message}</div> : null}
-      {session && requests.data.length ? (
+      {session && activeRequests.length ? (
         <div className="requestSection">
-          <h2>我的申请</h2>
-          <div className="requestList">{requests.data.map((item) => <RequestRow key={item.id} item={item} />)}</div>
+          <div className="subhead"><h2>求片处理中</h2><span>{activeRequests.length} 条</span></div>
+          <div className="requestList">{activeRequests.map((item) => <RequestRow key={item.id} item={item} />)}</div>
+        </div>
+      ) : null}
+      {session && fulfilledRequests.length ? (
+        <div className="requestSection requestArchiveSection">
+          <div className="subhead"><h2>已入库</h2><span>{fulfilledRequests.length} 条</span></div>
+          <div className="requestList">{fulfilledRequests.map((item) => <RequestRow key={item.id} item={item} />)}</div>
+        </div>
+      ) : null}
+      {session && rejectedRequests.length ? (
+        <div className="requestSection requestArchiveSection">
+          <div className="subhead"><h2>已拒绝</h2><span>{rejectedRequests.length} 条</span></div>
+          <div className="requestList">{rejectedRequests.map((item) => <RequestRow key={item.id} item={item} />)}</div>
         </div>
       ) : null}
       {results.length ? (
@@ -1692,6 +1716,20 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
   const [telegramBusy, setTelegramBusy] = useState("");
   const [error, setError] = useState("");
   const latestMedia = latest.data.filter((item) => item.type === "movie" || item.type === "series");
+  const activeRequests = requests.data.filter((item) => item.status === "pending" || item.status === "approved");
+  const fulfilledRequests = requests.data.filter((item) => item.status === "fulfilled");
+  const rejectedRequests = requests.data.filter((item) => item.status === "rejected");
+
+  useEffect(() => {
+    if (session?.role !== "admin") return;
+    const refresh = () => requests.reload().catch(() => undefined);
+    const timer = window.setInterval(refresh, 10_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [session?.token, session?.role]);
 
   async function update(item: MediaRequest, status: RequestStatus) {
     if (!session) return;
@@ -1781,14 +1819,35 @@ function AdminView({ session, onConfigChange }: { session: UserSession | null; o
       </div>
       <div className="adminSection">
         <div className="subhead">
-          <h2>求片申请</h2>
-          <span>{requests.data.length} 条</span>
+          <h2>求片处理中</h2>
+          <span>{activeRequests.length} 条</span>
         </div>
-        {!requests.data.length && !requests.loading ? <div className="notice">暂无求片申请。</div> : null}
+        {!activeRequests.length && !requests.loading ? <div className="notice">暂无待处理或等待入库的求片。</div> : null}
         <div className="requestList">
-          {requests.data.map((item) => <RequestRow key={item.id} item={item} admin updating={updating === item.id} onStatus={(status) => update(item, status)} />)}
+          {activeRequests.map((item) => <RequestRow key={item.id} item={item} admin updating={updating === item.id} onStatus={(status) => update(item, status)} />)}
         </div>
       </div>
+      <div className="adminSection requestArchiveSection">
+        <div className="subhead">
+          <h2>已入库</h2>
+          <span>{fulfilledRequests.length} 条</span>
+        </div>
+        {!fulfilledRequests.length && !requests.loading ? <div className="notice">暂无已完成入库的求片。</div> : null}
+        <div className="requestList">
+          {fulfilledRequests.map((item) => <RequestRow key={item.id} item={item} admin />)}
+        </div>
+      </div>
+      {rejectedRequests.length ? (
+        <div className="adminSection requestArchiveSection">
+          <div className="subhead">
+            <h2>已拒绝</h2>
+            <span>{rejectedRequests.length} 条</span>
+          </div>
+          <div className="requestList">
+            {rejectedRequests.map((item) => <RequestRow key={item.id} item={item} admin />)}
+          </div>
+        </div>
+      ) : null}
       <div className="adminSection">
         <div className="subhead">
           <h2>最近入库</h2>

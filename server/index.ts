@@ -9,6 +9,7 @@ import {
   annotateChartItems,
   fetchEmbyImage,
   findPosterFallback,
+  getFulfilledRequestIds,
   getLatestItems,
   getLibrarySeasonNumbers,
   getPlayedHistory,
@@ -18,7 +19,7 @@ import {
   searchLibrary,
   sessionFromHeaders
 } from "./emby.js";
-import { createMediaRequest, listMediaRequests, updateMediaRequest } from "./requests.js";
+import { createMediaRequest, fulfillMediaRequests, listActiveMediaRequests, listMediaRequests, setMediaRequestTelegramMessages, updateMediaRequest } from "./requests.js";
 import { enrichChartPosters } from "./posters.js";
 import { discoverTmdb, fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasonDetails, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
 import {
@@ -36,7 +37,7 @@ import {
   telegramConfigured
 } from "./telegram.js";
 import type { TgBotConfig } from "./telegram.js";
-import type { ChartItem, RequestStatus } from "./types.js";
+import type { ChartItem, EmbySession, MediaRequest, RequestStatus } from "./types.js";
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,32 @@ app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 function asyncRoute(handler: express.RequestHandler): express.RequestHandler {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+}
+
+const requestArchiveChecks = new Map<string, { checkedAt: number; loading?: Promise<MediaRequest[]> }>();
+
+async function reconcileRequestArchive(session: EmbySession, force = false) {
+  const key = `${session.serverUrl}:${session.userId}`;
+  const cached = requestArchiveChecks.get(key);
+  if (cached?.loading) return cached.loading;
+  if (!force && cached && Date.now() - cached.checkedAt < 60_000) return [] as MediaRequest[];
+
+  const loading = (async () => {
+    const active = await listActiveMediaRequests();
+    if (!active.length) return [] as MediaRequest[];
+    const fulfilledIds = await getFulfilledRequestIds(session, active);
+    const fulfilled = await fulfillMediaRequests(fulfilledIds);
+    for (const request of fulfilled) {
+      await notifyRequestStatus(request, request.statusUpdatedBy || "Emby 自动归档").catch((error: Error) => console.error(`Telegram archive notification failed: ${error.message}`));
+    }
+    return fulfilled;
+  })();
+  requestArchiveChecks.set(key, { checkedAt: Date.now(), loading });
+  try {
+    return await loading;
+  } finally {
+    requestArchiveChecks.set(key, { checkedAt: Date.now() });
+  }
 }
 
 function requireSession(req: express.Request) {
@@ -483,7 +510,9 @@ app.get(
 app.get(
   "/api/requests",
   asyncRoute(async (req, res) => {
-    res.json(await listMediaRequests(requireAppSession(req)));
+    const session = requireAppSession(req);
+    if (session.emby) await reconcileRequestArchive(session.emby).catch((error: Error) => console.error(`Request archive check failed: ${error.message}`));
+    res.json(await listMediaRequests(session));
   })
 );
 
@@ -498,7 +527,7 @@ app.post(
       return;
     }
     let item: ChartItem;
-    let season: { seasonNumber: number; seasonName: string } | undefined;
+    let season: { seasonNumber: number; seasonName: string; episodeCount?: number } | undefined;
     if (mediaType === "tv") {
       const seasonNumber = Number(req.body?.seasonNumber);
       if (!Number.isInteger(seasonNumber) || seasonNumber <= 0) {
@@ -519,12 +548,16 @@ app.post(
           return;
         }
       }
-      season = { seasonNumber, seasonName: selected.name };
+      season = { seasonNumber, seasonName: selected.name, episodeCount: selected.episodeCount };
     } else {
       item = await fetchTmdbItem(tmdbId, mediaType);
     }
-    const created = await createMediaRequest(session, item, season);
-    await notifyRequestCreated(created).catch((error: Error) => console.error(`Telegram request notification failed: ${error.message}`));
+    let created = await createMediaRequest(session, item, season);
+    const notified = await notifyRequestCreated(created).catch((error: Error) => {
+      console.error(`Telegram request notification failed: ${error.message}`);
+      return null;
+    });
+    if (notified?.messages.length) created = (await setMediaRequestTelegramMessages(created.id, notified.messages)) || created;
     res.status(201).json(created);
   })
 );
@@ -534,8 +567,12 @@ app.patch(
   asyncRoute(async (req, res) => {
     const admin = requireAdmin(req);
     const id = scalar(req.params.id, "");
-    const updated = await updateMediaRequest(id, String(req.body?.status || "") as RequestStatus);
+    let updated = await updateMediaRequest(id, String(req.body?.status || "") as RequestStatus, admin.username);
     await notifyRequestStatus(updated, admin.username).catch((error: Error) => console.error(`Telegram status notification failed: ${error.message}`));
+    if (updated.status === "approved" && admin.emby) {
+      const archived = await reconcileRequestArchive(admin.emby, true).catch(() => [] as MediaRequest[]);
+      updated = archived.find((item) => item.id === updated.id) || updated;
+    }
     res.json(updated);
   })
 );

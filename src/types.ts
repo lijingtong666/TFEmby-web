@@ -194,6 +194,11 @@ export type LatencyStatus = {
 
 export type RequestStatus = "pending" | "approved" | "fulfilled" | "rejected";
 
+export type TelegramMessageReference = {
+  chatId: string;
+  messageId: number;
+};
+
 export type MediaRequest = {
   id: string;
   tmdbId: string;
@@ -205,11 +210,15 @@ export type MediaRequest = {
   overview?: string;
   seasonNumber?: number;
   seasonName?: string;
+  expectedEpisodeCount?: number;
   requestedBy: {
     userId: string;
     username: string;
   };
   status: RequestStatus;
+  statusUpdatedBy?: string;
+  fulfilledAt?: string;
+  telegramMessages?: TelegramMessageReference[];
   createdAt: string;
   updatedAt: string;
 };

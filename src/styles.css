@@ -854,6 +854,50 @@ h2 {
   color: var(--text);
 }
 
+.requestDecisionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.requestDecisionActions button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-weight: 750;
+}
+
+.requestApprove {
+  background: var(--brand);
+  color: #ffffff;
+}
+
+.requestApprove.active,
+.requestApprove:disabled {
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--line));
+  background: color-mix(in srgb, var(--brand) 11%, var(--surface));
+  color: var(--brand-strong);
+}
+
+.requestReject {
+  border-color: color-mix(in srgb, #d94a4a 25%, var(--line)) !important;
+  background: color-mix(in srgb, #d94a4a 8%, var(--surface));
+  color: #c23f3f;
+}
+
+.requestDecisionActions button:disabled {
+  cursor: default;
+}
+
+.requestArchiveSection .requestRow {
+  background: color-mix(in srgb, var(--surface-soft) 45%, var(--surface-raised));
+}
+
 .subhead {
   display: flex;
   align-items: center;

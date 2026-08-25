@@ -1,7 +1,7 @@
 import { cleanBaseUrl, config } from "./config.js";
 import { findDoubanPoster } from "./douban.js";
-import { fetchTmdbItem, findTmdbPoster } from "./tmdb.js";
-import type { ChartItem, EmbySession, MediaItem } from "./types.js";
+import { fetchTmdbItem, fetchTmdbSeasonDetails, findTmdbPoster } from "./tmdb.js";
+import type { ChartItem, EmbySession, MediaItem, MediaRequest } from "./types.js";
 import type { IncomingHttpHeaders } from "node:http";
 
 type EmbyItem = {
@@ -599,4 +599,58 @@ export async function getLibrarySeasonNumbers(session: EmbySession, tmdbId: stri
   });
   const episodeData = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${episodeParams.toString()}`);
   return new Set((episodeData.Items || []).map((item) => item.ParentIndexNumber).filter((value): value is number => Number.isInteger(value) && Number(value) > 0));
+}
+
+function matchesRequest(item: MediaItem, request: MediaRequest) {
+  const sameTmdb = request.tmdbId && providerId(item, ["Tmdb", "TMDb"]) === request.tmdbId;
+  const requestTitles = [request.title, request.originalTitle].map(normalizeTitle).filter(Boolean);
+  const sameTitle = [item.title, item.originalTitle].map(normalizeTitle).some((title) => title && requestTitles.includes(title));
+  const sameYear = !request.year || !item.year || request.year === item.year;
+  return Boolean(sameTmdb || (sameTitle && sameYear));
+}
+
+async function seasonEpisodeCount(session: EmbySession, seriesId: string, seasonNumber: number) {
+  const params = new URLSearchParams({
+    UserId: session.userId,
+    ParentId: seriesId,
+    Recursive: "true",
+    IncludeItemTypes: "Episode",
+    Fields: "ParentIndexNumber,IndexNumber",
+    Limit: "10000"
+  });
+  const data = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${params.toString()}`);
+  return new Set((data.Items || [])
+    .filter((item) => item.ParentIndexNumber === seasonNumber && Number.isInteger(item.IndexNumber) && Number(item.IndexNumber) > 0)
+    .map((item) => Number(item.IndexNumber))).size;
+}
+
+export async function getFulfilledRequestIds(session: EmbySession, requests: MediaRequest[]) {
+  if (!requests.length) return [];
+  const library = await getLibraryIndex(session);
+  const fulfilled: string[] = [];
+  const concurrency = 4;
+
+  for (let index = 0; index < requests.length; index += concurrency) {
+    const matches = await Promise.all(requests.slice(index, index + concurrency).map(async (request) => {
+      if (request.mediaType === "movie") {
+        return library.some((item) => item.type === "movie" && matchesRequest(item, request));
+      }
+      if (!request.seasonNumber) return false;
+      const series = library.find((item) => item.type === "series" && matchesRequest(item, request));
+      if (!series) return false;
+      let expectedEpisodes = request.expectedEpisodeCount || 0;
+      if (!expectedEpisodes) {
+        const details = await fetchTmdbSeasonDetails(request.tmdbId, request.seasonNumber).catch(() => null);
+        expectedEpisodes = details?.episodeCount || details?.episodes.length || 0;
+      }
+      if (!expectedEpisodes) return false;
+      const actualEpisodes = await seasonEpisodeCount(session, series.id, request.seasonNumber).catch(() => 0);
+      return actualEpisodes >= expectedEpisodes;
+    }));
+    matches.forEach((matched, offset) => {
+      if (matched) fulfilled.push(requests[index + offset].id);
+    });
+  }
+
+  return fulfilled;
 }

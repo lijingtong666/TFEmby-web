@@ -3,10 +3,11 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppSession } from "./auth.js";
 import { config, getTmdbApiBases, getTmdbImageBases, tmdbApiUrl, tmdbImageUrl } from "./config.js";
+import { getFulfilledRequestIds } from "./emby.js";
 import { externalServiceFetch, testProxyLatency } from "./proxy.js";
-import { createMediaRequest, updateMediaRequest } from "./requests.js";
+import { createMediaRequest, fulfillMediaRequests, listActiveMediaRequests, setMediaRequestTelegramMessages, updateMediaRequest } from "./requests.js";
 import { fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
-import type { ChartItem, MediaRequest, RequestStatus } from "./types.js";
+import type { ChartItem, EmbySession, MediaRequest, RequestStatus, TelegramMessageReference } from "./types.js";
 
 type EmbyItem = Record<string, any>;
 
@@ -50,6 +51,14 @@ type Metadata = {
   douban: Record<string, any>;
 };
 
+type TelegramApiResponse = {
+  ok?: boolean;
+  description?: string;
+  result?: {
+    message_id?: number;
+  };
+};
+
 export type TgBotConfig = {
   telegramBotToken: string;
   telegramChatId: string;
@@ -87,7 +96,7 @@ let lastMenuError = "";
 
 const statusLabels: Record<RequestStatus, string> = {
   pending: "待处理",
-  approved: "已接收",
+  approved: "已接受",
   fulfilled: "已入库",
   rejected: "已拒绝"
 };
@@ -267,7 +276,7 @@ async function telegramForm(settings: TgBotConfig, method: string, values: Recor
     body: new URLSearchParams(values),
     signal: AbortSignal.timeout(20000)
   });
-  const result = await response.json().catch(() => ({})) as { ok?: boolean; description?: string };
+  const result = await response.json().catch(() => ({})) as TelegramApiResponse;
   if (!response.ok || !result.ok) throw new Error(result.description || `Telegram HTTP ${response.status}`);
   return result;
 }
@@ -284,8 +293,9 @@ async function telegramMultipart(settings: TgBotConfig, chatId: string, image: B
     body: form,
     signal: AbortSignal.timeout(30000)
   });
-  const result = await response.json().catch(() => ({})) as { ok?: boolean; description?: string };
+  const result = await response.json().catch(() => ({})) as TelegramApiResponse;
   if (!response.ok || !result.ok) throw new Error(result.description || `Telegram HTTP ${response.status}`);
+  return result;
 }
 
 async function sendBotText(settings: TgBotConfig, text: string, chatId?: string, replyMarkup?: Record<string, unknown>) {
@@ -315,14 +325,16 @@ async function answerCallback(settings: TgBotConfig, callbackQueryId: string, te
 
 async function sendTelegram(message: string, photo?: string, replyMarkup?: Record<string, unknown>) {
   const settings = normalizeBotConfig({ telegramBotToken: config.telegramBotToken, telegramChatId: config.telegramChatId });
-  if (!botConfigured(settings)) return { configured: false, sent: 0 };
+  if (!botConfigured(settings)) return { configured: false, sent: 0, messages: [] as TelegramMessageReference[] };
   let sent = 0;
+  const messages: TelegramMessageReference[] = [];
   for (const chatId of parseChatIds(settings.telegramChatId)) {
     if (photo?.startsWith("/api/tmdb/image")) {
       try {
         const url = new URL(photo, "http://localhost");
         const response = await fetchTmdbImage(url.searchParams.get("path") || "", url.searchParams.get("size") || "w500");
-        await telegramMultipart(settings, chatId, await response.blob(), message, replyMarkup);
+        const result = await telegramMultipart(settings, chatId, await response.blob(), message, replyMarkup);
+        if (result.result?.message_id) messages.push({ chatId, messageId: result.result.message_id });
         sent += 1;
         continue;
       } catch {
@@ -331,17 +343,19 @@ async function sendTelegram(message: string, photo?: string, replyMarkup?: Recor
     }
     if (photo?.startsWith("https://")) {
       try {
-        await telegramForm(settings, "sendPhoto", { chat_id: chatId, photo, caption: message, parse_mode: "HTML", ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {}) });
+        const result = await telegramForm(settings, "sendPhoto", { chat_id: chatId, photo, caption: message, parse_mode: "HTML", ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {}) });
+        if (result.result?.message_id) messages.push({ chatId, messageId: result.result.message_id });
         sent += 1;
         continue;
       } catch {
         // Telegram may fail to download a remote poster; text is still delivered.
       }
     }
-    await telegramForm(settings, "sendMessage", { chat_id: chatId, text: message, parse_mode: "HTML", disable_web_page_preview: "true", ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {}) });
+    const result = await telegramForm(settings, "sendMessage", { chat_id: chatId, text: message, parse_mode: "HTML", disable_web_page_preview: "true", ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {}) });
+    if (result.result?.message_id) messages.push({ chatId, messageId: result.result.message_id });
     sent += 1;
   }
-  return { configured: true, sent };
+  return { configured: true, sent, messages };
 }
 
 function tmdbUrl(request: MediaRequest) {
@@ -372,7 +386,28 @@ export function notifyRequestCreated(request: MediaRequest) {
   });
 }
 
-export function notifyRequestStatus(request: MediaRequest, operator: string) {
+async function syncRequestTelegramMessages(request: MediaRequest) {
+  if (!request.telegramMessages?.length) return;
+  const settings = normalizeBotConfig({ telegramBotToken: config.telegramBotToken, telegramChatId: config.telegramChatId });
+  if (!settings.telegramBotToken) return;
+  const statusButton = request.status === "approved"
+    ? "✅ 已接受，等待入库"
+    : request.status === "rejected"
+      ? "❌ 已拒绝"
+      : "📦 已入库";
+  const replyMarkup = request.status === "pending" ? { inline_keyboard: [[
+        { text: "✅ 接受", callback_data: `adminreq:approve:${request.id}` },
+        { text: "❌ 拒绝", callback_data: `adminreq:reject:${request.id}` }
+      ]] } : { inline_keyboard: [[{ text: statusButton, callback_data: `adminreq:done:${request.id}` }]] };
+  await Promise.all(request.telegramMessages.map((message) => telegramForm(settings, "editMessageReplyMarkup", {
+    chat_id: message.chatId,
+    message_id: String(message.messageId),
+    reply_markup: JSON.stringify(replyMarkup)
+  }).catch(() => undefined)));
+}
+
+export async function notifyRequestStatus(request: MediaRequest, operator: string) {
+  await syncRequestTelegramMessages(request);
   const icon = request.status === "fulfilled" ? "✅" : request.status === "rejected" ? "❌" : "🔔";
   return sendTelegram([
     `${icon} <b>求片状态更新</b>`,
@@ -384,6 +419,24 @@ export function notifyRequestStatus(request: MediaRequest, operator: string) {
     `<b>操作人：</b>${escapeHtml(operator)}`,
     `<b>TMDB：</b><a href="${tmdbUrl(request)}">${escapeHtml(request.tmdbId)}</a>`
   ].join("\n"), request.poster);
+}
+
+async function reconcileFulfilledRequests(settings: TgBotConfig) {
+  if (!settings.embyUrl || !settings.embyApiKey || !settings.embyUserId) return [];
+  const active = await listActiveMediaRequests();
+  if (!active.length) return [];
+  const session: EmbySession = {
+    serverUrl: settings.embyUrl,
+    accessToken: settings.embyApiKey,
+    userId: settings.embyUserId,
+    userName: "TFEmby Bot"
+  };
+  const fulfilledIds = await getFulfilledRequestIds(session, active);
+  const fulfilled = await fulfillMediaRequests(fulfilledIds);
+  for (const request of fulfilled) {
+    await notifyRequestStatus(request, request.statusUpdatedBy || "Emby 自动归档").catch((error: Error) => addLog(`求片归档通知失败：${error.message}`));
+  }
+  return fulfilled;
 }
 
 export function sendTelegramTest() {
@@ -898,9 +951,13 @@ export async function handleEmbyWebhook(payload: EmbyItem, headers: Record<strin
   if (state.seen[dedupeKey]) return { ignored: true, reason: "重复项目" };
   const metadata = await buildMetadata(settings, item);
   await sendLibraryNotification(settings, item, metadata, payload);
+  const archived = await reconcileFulfilledRequests(settings).catch((error: Error) => {
+    addLog(`求片自动归档检查失败：${error.message}`);
+    return [] as MediaRequest[];
+  });
   state.seen[dedupeKey] = { title: displayTitle(item), kind: mediaKind(item), type: String(item.Type), eventAt: formatEventDateTime(eventTime(item, payload)), at: nowIso() };
   state.lastError = "";
-  state.lastSummary = `Webhook 推送完成：${displayTitle(item)}`;
+  state.lastSummary = `Webhook 推送完成：${displayTitle(item)}${archived.length ? `，归档求片 ${archived.length} 条` : ""}`;
   await saveState(state);
   addLog(state.lastSummary);
   return { ignored: false, title: displayTitle(item) };
@@ -926,9 +983,13 @@ async function scanOnce(sendNotifications = true) {
     state.seen[key] = { title: displayTitle(item), kind: mediaKind(item), type: String(item.Type), eventAt: formatEventDateTime(item.DateCreated), at: nowIso() };
     recorded += 1;
   }
+  const archived = await reconcileFulfilledRequests(settings).catch((error: Error) => {
+    addLog(`求片自动归档检查失败：${error.message}`);
+    return [] as MediaRequest[];
+  });
   state.lastScanAt = nowIso();
   state.lastError = "";
-  state.lastSummary = `扫描完成：最新 ${items.length} 个，新增记录 ${recorded} 个，推送 ${sent} 条`;
+  state.lastSummary = `扫描完成：最新 ${items.length} 个，新增记录 ${recorded} 个，推送 ${sent} 条，归档求片 ${archived.length} 条`;
   await saveState(state);
   addLog(state.lastSummary);
   return { summary: state.lastSummary, sent, recorded, total: items.length, errors: [] };
@@ -1208,7 +1269,7 @@ async function submitTelegramRequest(settings: TgBotConfig, chatId: string, user
       return;
     }
   }
-  let season: { seasonNumber: number; seasonName: string } | undefined;
+  let season: { seasonNumber: number; seasonName: string; episodeCount?: number } | undefined;
   if (item.mediaType === "tv") {
     if (!seasonNumber) throw new Error("请选择要申请的季度");
     const details = await fetchTmdbSeasons(item.externalIds.tmdb || "");
@@ -1220,10 +1281,14 @@ async function submitTelegramRequest(settings: TgBotConfig, chatId: string, user
       return;
     }
     item = details.item;
-    season = { seasonNumber, seasonName: selected.name };
+    season = { seasonNumber, seasonName: selected.name, episodeCount: selected.episodeCount };
   }
   const created = await createMediaRequest(telegramSession(chatId, user), item, season);
-  await notifyRequestCreated(created).catch((error: Error) => addLog(`Telegram 求片通知失败：${error.message}`));
+  const notified = await notifyRequestCreated(created).catch((error: Error) => {
+    addLog(`Telegram 求片通知失败：${error.message}`);
+    return null;
+  });
+  if (notified?.messages.length) await setMediaRequestTelegramMessages(created.id, notified.messages);
   await sendBotText(settings, `📨 已提交《${escapeHtml(item.title)}》${seasonNumber ? `第 ${seasonNumber} 季` : ""}。\nTMDB ID：${escapeHtml(item.externalIds.tmdb)}`, chatId);
 }
 
@@ -1333,8 +1398,8 @@ async function handleTelegramCallback(settings: TgBotConfig, state: TelegramStat
       await answerCallback(settings, callbackId, "操作参数无效", true);
       return;
     }
-    const updated = await updateMediaRequest(requestId, status);
     const operator = String(user.username ? `@${user.username}` : user.first_name || user.id || "Telegram 管理员");
+    const updated = await updateMediaRequest(requestId, status, operator);
     await answerCallback(settings, callbackId, status === "approved" ? "已接受求片申请" : "已拒绝求片申请");
     const messageId = String(callback.message?.message_id || "");
     if (messageId) {

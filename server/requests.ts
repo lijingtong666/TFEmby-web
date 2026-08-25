@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AppSession } from "./auth.js";
 import { config } from "./config.js";
-import type { ChartItem, MediaRequest, RequestStatus } from "./types.js";
+import type { ChartItem, MediaRequest, RequestStatus, TelegramMessageReference } from "./types.js";
 
 type RequestStore = {
   requests: MediaRequest[];
@@ -39,7 +39,12 @@ export async function listMediaRequests(session: AppSession) {
   return visible.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function createMediaRequest(session: AppSession, item: ChartItem, season?: { seasonNumber: number; seasonName: string }) {
+export async function listActiveMediaRequests() {
+  const store = await loadStore();
+  return store.requests.filter((item) => item.status === "pending" || item.status === "approved");
+}
+
+export function createMediaRequest(session: AppSession, item: ChartItem, season?: { seasonNumber: number; seasonName: string; episodeCount?: number }) {
   return mutate(async () => {
     const tmdbId = item.externalIds.tmdb;
     if (!tmdbId) {
@@ -74,6 +79,7 @@ export function createMediaRequest(session: AppSession, item: ChartItem, season?
       overview: item.overview,
       seasonNumber: season?.seasonNumber,
       seasonName: season?.seasonName,
+      expectedEpisodeCount: season?.episodeCount,
       requestedBy: { userId: session.userId, username: session.emby?.userName || session.username },
       status: "pending",
       createdAt: timestamp,
@@ -85,7 +91,7 @@ export function createMediaRequest(session: AppSession, item: ChartItem, season?
   });
 }
 
-export function updateMediaRequest(id: string, status: RequestStatus) {
+export function updateMediaRequest(id: string, status: RequestStatus, operator?: string) {
   return mutate(async () => {
     const allowed: RequestStatus[] = ["pending", "approved", "fulfilled", "rejected"];
     if (!allowed.includes(status)) {
@@ -101,8 +107,42 @@ export function updateMediaRequest(id: string, status: RequestStatus) {
       throw error;
     }
     request.status = status;
-    request.updatedAt = new Date().toISOString();
+    const timestamp = new Date().toISOString();
+    request.updatedAt = timestamp;
+    request.statusUpdatedBy = operator;
+    request.fulfilledAt = status === "fulfilled" ? timestamp : undefined;
     await saveStore(store);
     return request;
+  });
+}
+
+export function setMediaRequestTelegramMessages(id: string, messages: TelegramMessageReference[]) {
+  return mutate(async () => {
+    const store = await loadStore();
+    const request = store.requests.find((item) => item.id === id);
+    if (!request) return null;
+    request.telegramMessages = messages.filter((message) => message.chatId && Number.isInteger(message.messageId) && message.messageId > 0);
+    await saveStore(store);
+    return request;
+  });
+}
+
+export function fulfillMediaRequests(ids: string[], operator = "Emby 自动归档") {
+  return mutate(async () => {
+    const targetIds = new Set(ids);
+    if (!targetIds.size) return [];
+    const store = await loadStore();
+    const timestamp = new Date().toISOString();
+    const updated: MediaRequest[] = [];
+    for (const request of store.requests) {
+      if (!targetIds.has(request.id) || (request.status !== "pending" && request.status !== "approved")) continue;
+      request.status = "fulfilled";
+      request.statusUpdatedBy = operator;
+      request.fulfilledAt = timestamp;
+      request.updatedAt = timestamp;
+      updated.push(request);
+    }
+    if (updated.length) await saveStore(store);
+    return updated;
   });
 }
