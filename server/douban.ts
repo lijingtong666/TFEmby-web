@@ -182,7 +182,7 @@ export async function findDoubanPoster(item: ChartItem): Promise<string | undefi
 }
 
 export async function fetchDoubanChart(chart: string, media = "all", period = "week", page = 1, year?: number, genre?: number): Promise<ChartPage> {
-  const currentPage = Math.min(30, Math.max(1, page));
+  const currentPage = Math.min(5, Math.max(1, page));
   if (!config.doubanApiBase) return fallback(chart, media, currentPage, year);
 
   const endpoint = new URL(config.doubanApiBase.replace(/\/+$/, "") + "/charts");
@@ -219,7 +219,7 @@ export async function fetchDoubanChart(chart: string, media = "all", period = "w
     return {
       items,
       page: currentPage,
-      totalPages: Math.min(30, Math.max(1, data.totalPages || data.total_pages || 1)),
+      totalPages: Math.min(5, Math.max(1, data.totalPages || data.total_pages || 1)),
       totalResults: data.totalResults || data.total_results || items.length
     };
   } catch {

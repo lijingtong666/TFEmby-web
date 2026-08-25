@@ -197,13 +197,41 @@ function formatDate(value?: string) {
 
 function Poster({ item, compact = false }: { item: MediaItem | ChartItem | MediaRequest; compact?: boolean }) {
   const title = "title" in item ? item.title : "";
-  const sources = [item.poster, "backdrop" in item ? item.backdrop : undefined].filter((value): value is string => Boolean(value));
+  const posterFallback = "posterFallback" in item ? item.posterFallback : undefined;
+  const backdrop = "backdrop" in item ? item.backdrop : undefined;
+  const sources = [
+    item.poster,
+    posterFallback,
+    backdrop
+  ].filter((value): value is string => Boolean(value));
   const [sourceIndex, setSourceIndex] = useState(0);
-  useEffect(() => setSourceIndex(0), [item.poster, "backdrop" in item ? item.backdrop : undefined]);
+  const [resolvedSource, setResolvedSource] = useState<string>();
+  useEffect(() => setSourceIndex(0), [item.poster, posterFallback, backdrop]);
   const source = sources[sourceIndex];
+  useEffect(() => {
+    let alive = true;
+    let objectUrl = "";
+    setResolvedSource(undefined);
+    if (!source) return;
+    if (!source.startsWith("/api/emby/")) {
+      setResolvedSource(source);
+      return;
+    }
+    api.mediaImage(source)
+      .then((blob) => {
+        if (!alive) return;
+        objectUrl = URL.createObjectURL(blob);
+        setResolvedSource(objectUrl);
+      })
+      .catch(() => alive && setSourceIndex((current) => current + 1));
+    return () => {
+      alive = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [source]);
   return (
     <div className={`poster ${compact ? "posterCompact" : ""}`}>
-      {source ? <img src={source} alt={title} loading="lazy" onError={() => setSourceIndex((current) => current + 1)} /> : <div className="posterFallback">{title.slice(0, 4)}</div>}
+      {resolvedSource ? <img src={resolvedSource} alt={title} loading="lazy" onError={() => setSourceIndex((current) => current + 1)} /> : <div className="posterFallback">{title.slice(0, 4)}</div>}
     </div>
   );
 }
@@ -500,8 +528,11 @@ function MediaRow({ item }: { item: MediaItem }) {
         <div className="muted">{displayMeta}</div>
         {item.recentEpisodeRange ? <div className="episodeRange">{item.recentEpisodeRange}</div> : null}
         {item.userData?.progressPercent ? (
-          <div className="progress">
-            <span style={{ width: `${item.userData.progressPercent}%` }} />
+          <div className="progressLine">
+            <div className="progress">
+              <span style={{ width: `${item.userData.progressPercent}%` }} />
+            </div>
+            <strong>{Math.round(item.userData.progressPercent)}%</strong>
           </div>
         ) : null}
       </div>
@@ -647,7 +678,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.9"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.10"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -897,15 +928,15 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
 }
 
 function Overview({ session }: { session: EmbySession | null }) {
-  const stats = useAsync(() => (session ? api.stats(session) : Promise.resolve({ movies: 0, series: 0, played: 0, resume: 0, latest: 0 })), [session?.accessToken], {
+  const stats = useAsync(() => (session ? api.stats(session) : Promise.resolve({ movies: 0, series: 0, played: 0, resume: 0, resumeProgressPercent: 0, latest: 0 })), [session?.accessToken], {
     movies: 0,
     series: 0,
     played: 0,
     resume: 0,
+    resumeProgressPercent: 0,
     latest: 0
   });
   const resume = useAsync(() => (session ? api.resume(session) : Promise.resolve([])), [session?.accessToken], [] as MediaItem[]);
-  const latest = useAsync(() => (session ? api.latest(session) : Promise.resolve([])), [session?.accessToken], [] as MediaItem[]);
 
   return (
     <section className="overview">
@@ -913,19 +944,18 @@ function Overview({ session }: { session: EmbySession | null }) {
         <div><strong>{stats.data.movies}</strong><span>电影</span></div>
         <div><strong>{stats.data.series}</strong><span>剧集</span></div>
         <div><strong>{stats.data.played}</strong><span>已看</span></div>
-        <div><strong>{stats.data.resume}</strong><span>进度</span></div>
+        <div className="progressStat">
+          <div className="circularProgress" style={{ background: `conic-gradient(var(--brand) ${stats.data.resumeProgressPercent}%, color-mix(in srgb, var(--line) 75%, var(--surface-soft)) 0)` }}>
+            <strong>{stats.data.resumeProgressPercent}%</strong>
+          </div>
+          <span>平均进度 · {stats.data.resume} 项</span>
+        </div>
       </div>
       {!session ? <div className="notice">登录 Emby 后显示库内资源、播放历史和榜单观看状态。</div> : null}
-      <div className="split">
-        <section className="listPanel">
-          <h2>继续观看</h2>
-          {resume.data.slice(0, 5).map((item) => <MediaRow key={item.id} item={item} />)}
-        </section>
-        <section className="listPanel">
-          <h2>最近入库</h2>
-          {latest.data.slice(0, 5).map((item) => <MediaRow key={item.id} item={item} />)}
-        </section>
-      </div>
+      <section className="listPanel overviewResumePanel">
+        <h2>继续观看</h2>
+        <div className="rows">{resume.data.slice(0, 6).map((item) => <MediaRow key={item.id} item={item} />)}</div>
+      </section>
     </section>
   );
 }
@@ -959,12 +989,12 @@ function SearchView({ session }: { session: EmbySession | null }) {
       <div className="sectionHead">
         <div>
           <h1>片库搜索</h1>
-          <p>查询库中电影、剧集与单集</p>
+          <p>模糊查询库中电影与剧集</p>
         </div>
       </div>
       <form className="searchBar" onSubmit={submit}>
         <Search size={20} />
-        <input value={query} onChange={(event) => { setQuery(event.target.value); setSearched(false); }} placeholder="输入电影、剧集或单集名称" disabled={!session || busy} />
+        <input value={query} onChange={(event) => { setQuery(event.target.value); setSearched(false); }} placeholder="输入电影或剧集名称" disabled={!session || busy} />
         <button disabled={!session || busy}>{busy ? "搜索中" : "搜索"}</button>
       </form>
       {error ? <div className="notice">{error}</div> : null}
@@ -1029,6 +1059,56 @@ function RequestRow({ item, admin, onStatus, updating }: { item: MediaRequest; a
         ) : null}
       </div>
     </article>
+  );
+}
+
+function RequestStatusNotice({ session }: { session: UserSession | null }) {
+  const [notice, setNotice] = useState<MediaRequest | null>(null);
+
+  useEffect(() => {
+    if (!session || session.role === "admin") {
+      setNotice(null);
+      return;
+    }
+    let alive = true;
+    const storageKey = `tfemby-request-notice-${session.userId}`;
+    const refresh = async () => {
+      try {
+        const requests = await api.requests(session);
+        const latest = requests
+          .filter((item) => item.status !== "pending")
+          .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+        const seenAt = localStorage.getItem(storageKey) || "";
+        if (alive && latest && latest.updatedAt > seenAt) {
+          setNotice((current) => current?.id === latest.id && current.status === latest.status ? current : latest);
+        }
+      } catch {
+        // The regular request page still shows the persisted status when polling is unavailable.
+      }
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 10_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [session?.token, session?.userId, session?.role]);
+
+  if (!notice || !session) return null;
+  const message = notice.status === "approved"
+    ? "管理员已接受您的求片申请"
+    : notice.status === "fulfilled"
+      ? "您申请的资源已经入库"
+      : "管理员已拒绝您的求片申请";
+
+  return (
+    <aside className={`requestStatusNotice status-${notice.status}`} role="status" aria-live="polite">
+      <span className="requestNoticeIcon">{notice.status === "rejected" ? <X size={19} /> : <CheckCircle2 size={19} />}</span>
+      <div><strong>{message}</strong><span>《{notice.title}》{notice.seasonNumber ? `第 ${notice.seasonNumber} 季` : ""}</span></div>
+      <button type="button" onClick={() => { localStorage.setItem(`tfemby-request-notice-${session.userId}`, notice.updatedAt); setNotice(null); }} title="关闭通知" aria-label="关闭通知"><X size={17} /></button>
+    </aside>
   );
 }
 
@@ -1109,6 +1189,17 @@ function RequestView({ session }: { session: UserSession | null }) {
   const [seasonLoading, setSeasonLoading] = useState("");
   const [seasonError, setSeasonError] = useState("");
   const requests = useAsync(() => (session ? api.requests(session) : Promise.resolve([])), [session?.token], [] as MediaRequest[]);
+
+  useEffect(() => {
+    if (!session) return;
+    const refresh = () => requests.reload().catch(() => undefined);
+    const timer = window.setInterval(refresh, 10_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [session?.token]);
 
   async function search(event: FormEvent) {
     event.preventDefault();
@@ -1765,6 +1856,7 @@ export function App() {
           {view === "admin" ? <AdminView session={session} onConfigChange={() => api.config().then(setConfig).catch(() => undefined)} /> : null}
         </div>
       </main>
+      <RequestStatusNotice session={session} />
     </div>
   );
 }

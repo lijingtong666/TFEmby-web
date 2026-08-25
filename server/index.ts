@@ -7,6 +7,8 @@ import { config, getWebSettings, loadRuntimeSettings, saveRuntimeSettings } from
 import { fetchDoubanChart } from "./douban.js";
 import {
   annotateChartItems,
+  fetchEmbyImage,
+  findPosterFallback,
   getLatestItems,
   getLibrarySeasonNumbers,
   getPlayedHistory,
@@ -279,10 +281,49 @@ app.get(
 );
 
 app.get(
+  "/api/emby/image",
+  asyncRoute(async (req, res) => {
+    const itemId = scalar(req.query.itemId, "");
+    const kind = scalar(req.query.kind, "Primary") === "Backdrop" ? "Backdrop" : "Primary";
+    const width = Number(req.query.width);
+    const image = await fetchEmbyImage(requireSession(req), itemId, kind, Number.isFinite(width) ? width : undefined);
+    res.setHeader("Content-Type", image.contentType);
+    res.setHeader("Cache-Control", "private, max-age=3600, stale-while-revalidate=86400");
+    res.send(image.body);
+  })
+);
+
+app.get(
+  "/api/emby/poster-fallback",
+  asyncRoute(async (req, res) => {
+    requireSession(req);
+    const title = scalar(req.query.title, "").trim();
+    if (!title) {
+      res.status(400).json({ error: "缺少影片名称。" });
+      return;
+    }
+    const requestedYear = Number(req.query.year);
+    const poster = await findPosterFallback({
+      title,
+      originalTitle: scalar(req.query.originalTitle, "") || undefined,
+      mediaType: scalar(req.query.mediaType, "tv") === "movie" ? "movie" : "tv",
+      year: Number.isInteger(requestedYear) ? requestedYear : undefined,
+      tmdbId: scalar(req.query.tmdbId, "") || undefined
+    });
+    if (!poster) {
+      res.status(404).json({ error: "没有找到备用封面。" });
+      return;
+    }
+    res.setHeader("Cache-Control", "private, max-age=3600, stale-while-revalidate=86400");
+    res.redirect(302, poster);
+  })
+);
+
+app.get(
   "/api/tmdb/discover",
   asyncRoute(async (req, res) => {
     const mediaType = scalar(req.query.media, "movie") === "tv" ? "tv" : "movie";
-    const page = Math.min(30, Math.max(1, Number(req.query.page) || 1));
+    const page = Math.min(5, Math.max(1, Number(req.query.page) || 1));
     const requestedYear = Number(req.query.year);
     const year = Number.isInteger(requestedYear) && requestedYear >= 1900 && requestedYear <= new Date().getFullYear() + 2 ? requestedYear : undefined;
     const requestedGenre = Number(req.query.genre);
@@ -308,7 +349,7 @@ app.get(
     const chart = scalar(req.params.chart, "global");
     const media = scalar(req.query.media, "all");
     const period = scalar(req.query.period, "week");
-    const page = Math.min(30, Math.max(1, Number(req.query.page) || 1));
+    const page = Math.min(5, Math.max(1, Number(req.query.page) || 1));
     const requestedYear = Number(req.query.year);
     const year = Number.isInteger(requestedYear) && requestedYear >= 1900 && requestedYear <= new Date().getFullYear() + 2 ? requestedYear : undefined;
     const requestedGenre = Number(req.query.genre);

@@ -1,4 +1,6 @@
 import { cleanBaseUrl, config } from "./config.js";
+import { findDoubanPoster } from "./douban.js";
+import { fetchTmdbItem, findTmdbPoster } from "./tmdb.js";
 import type { ChartItem, EmbySession, MediaItem } from "./types.js";
 import type { IncomingHttpHeaders } from "node:http";
 
@@ -18,6 +20,7 @@ type EmbyItem = {
   BackdropImageTags?: string[];
   SeriesId?: string;
   SeriesName?: string;
+  SeriesPrimaryImageTag?: string;
   ParentIndexNumber?: number;
   IndexNumber?: number;
   UserData?: {
@@ -120,16 +123,16 @@ export function sessionFromHeaders(headers: IncomingHttpHeaders): EmbySession | 
   };
 }
 
-function imageUrl(session: EmbySession, item: EmbyItem, kind: "Primary" | "Backdrop") {
-  const hasImage = kind === "Primary" ? item.ImageTags?.Primary : item.BackdropImageTags?.[0];
-  if (!hasImage) return undefined;
-  const base = `${normalizeServer(session.serverUrl)}/Items/${item.Id}/Images/${kind}`;
-  const params = new URLSearchParams({
-    maxWidth: kind === "Primary" ? "500" : "1200",
-    quality: "90",
-    api_key: session.accessToken
-  });
-  return `${base}?${params.toString()}`;
+function imageUrl(item: EmbyItem, kind: "Primary" | "Backdrop") {
+  let itemId = item.Id;
+  let tag = kind === "Primary" ? item.ImageTags?.Primary : item.BackdropImageTags?.[0];
+  if (kind === "Primary" && !tag && item.SeriesId && item.SeriesPrimaryImageTag) {
+    itemId = item.SeriesId;
+    tag = item.SeriesPrimaryImageTag;
+  }
+  if (!tag) return undefined;
+  const params = new URLSearchParams({ itemId, kind, tag });
+  return `/api/emby/image?${params.toString()}`;
 }
 
 function kind(type: string): MediaItem["type"] {
@@ -146,7 +149,7 @@ function progress(item: EmbyItem) {
   return Math.min(99, Math.max(1, Math.round((position / runtime) * 100)));
 }
 
-function toMediaItem(session: EmbySession, item: EmbyItem): MediaItem {
+function toMediaItem(_session: EmbySession, item: EmbyItem): MediaItem {
   return {
     id: item.Id,
     title: item.Name,
@@ -154,8 +157,8 @@ function toMediaItem(session: EmbySession, item: EmbyItem): MediaItem {
     type: kind(item.Type),
     year: item.ProductionYear,
     overview: item.Overview,
-    poster: imageUrl(session, item, "Primary"),
-    backdrop: imageUrl(session, item, "Backdrop"),
+    poster: imageUrl(item, "Primary"),
+    backdrop: imageUrl(item, "Backdrop"),
     dateCreated: item.DateCreated,
     premiereDate: item.PremiereDate,
     communityRating: item.CommunityRating,
@@ -176,6 +179,133 @@ function toMediaItem(session: EmbySession, item: EmbyItem): MediaItem {
   };
 }
 
+const fallbackPosterLoads = new Map<string, Promise<string | undefined>>();
+
+async function fallbackPoster(item: MediaItem) {
+  const mediaType = item.type === "movie" ? "movie" : "tv";
+  const title = item.type === "episode" ? item.seriesName || item.title : item.title;
+  const tmdbId = providerId(item, ["Tmdb", "TMDb"]);
+  const key = `${mediaType}:${tmdbId || normalizeTitle(title)}:${item.year || ""}`;
+  let loading = fallbackPosterLoads.get(key);
+  if (!loading) {
+    loading = (async () => {
+      if (tmdbId && /^\d+$/.test(tmdbId)) {
+        const poster = await fetchTmdbItem(tmdbId, mediaType).then((value) => value.poster).catch(() => undefined);
+        if (poster) return poster;
+      }
+      const candidate: ChartItem = {
+        source: "demo",
+        chart: "emby-poster",
+        rank: 0,
+        title,
+        originalTitle: item.originalTitle,
+        mediaType,
+        year: item.year,
+        externalIds: { tmdb: tmdbId || undefined }
+      };
+      return (await findTmdbPoster(candidate)) || (await findDoubanPoster(candidate));
+    })();
+    fallbackPosterLoads.set(key, loading);
+  }
+  return loading;
+}
+
+function fallbackPosterUrl(item: MediaItem) {
+  const title = item.type === "episode" ? item.seriesName || item.title : item.title;
+  if (!title.trim()) return undefined;
+  const params = new URLSearchParams({
+    title,
+    mediaType: item.type === "movie" ? "movie" : "tv"
+  });
+  if (item.originalTitle) params.set("originalTitle", item.originalTitle);
+  if (item.year) params.set("year", String(item.year));
+  const tmdbId = providerId(item, ["Tmdb", "TMDb"]);
+  if (tmdbId) params.set("tmdbId", tmdbId);
+  return `/api/emby/poster-fallback?${params.toString()}`;
+}
+
+export async function findPosterFallback(input: {
+  title: string;
+  originalTitle?: string;
+  mediaType: "movie" | "tv";
+  year?: number;
+  tmdbId?: string;
+}) {
+  return fallbackPoster({
+    id: `fallback-${input.mediaType}-${input.tmdbId || normalizeTitle(input.title)}`,
+    title: input.title,
+    originalTitle: input.originalTitle,
+    type: input.mediaType === "movie" ? "movie" : "series",
+    year: input.year,
+    providerIds: input.tmdbId ? { Tmdb: input.tmdbId } : {}
+  });
+}
+
+async function enrichMediaPosters(session: EmbySession, rawItems: EmbyItem[]) {
+  const seriesLoads = new Map<string, Promise<EmbyItem | null>>();
+  const mapped = await Promise.all(rawItems.map(async (raw) => {
+    let item = toMediaItem(session, raw);
+    if (!item.poster && raw.Type === "Episode" && raw.SeriesId) {
+      let seriesLoad = seriesLoads.get(raw.SeriesId);
+      if (!seriesLoad) {
+        seriesLoad = embyFetch<EmbyItem>(session, `/Users/${session.userId}/Items/${encodeURIComponent(raw.SeriesId)}?Fields=${encodeURIComponent(fields)}`).catch(() => null);
+        seriesLoads.set(raw.SeriesId, seriesLoad);
+      }
+      const series = await seriesLoad;
+      if (series) {
+        item = {
+          ...item,
+          poster: imageUrl(series, "Primary"),
+          backdrop: item.backdrop || imageUrl(series, "Backdrop"),
+          providerIds: { ...(series.ProviderIds || {}), ...item.providerIds },
+          year: item.year || series.ProductionYear
+        };
+      }
+    }
+    return item;
+  }));
+
+  return enrichMappedPosters(mapped);
+}
+
+async function enrichMappedPosters(mapped: MediaItem[]) {
+  const result: MediaItem[] = [];
+  const concurrency = 6;
+  for (let index = 0; index < mapped.length; index += concurrency) {
+    result.push(...(await Promise.all(mapped.slice(index, index + concurrency).map(async (item) => {
+      if (item.poster) {
+        const posterFallback = fallbackPosterUrl(item);
+        return posterFallback ? { ...item, posterFallback } : item;
+      }
+      const poster = await fallbackPoster(item).catch(() => undefined);
+      return poster ? { ...item, poster } : item;
+    }))));
+  }
+  return result;
+}
+
+export async function fetchEmbyImage(session: EmbySession, itemId: string, kind: "Primary" | "Backdrop", maxWidth?: number) {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(itemId)) {
+    const error = new Error("Emby 图片 ID 无效。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+  const chosenWidth = Math.min(1600, Math.max(120, maxWidth || (kind === "Primary" ? 500 : 1200)));
+  const params = new URLSearchParams({ maxWidth: String(chosenWidth), quality: "90", api_key: session.accessToken });
+  const response = await fetch(`${normalizeServer(session.serverUrl)}/Items/${encodeURIComponent(itemId)}/Images/${kind}?${params}`, {
+    headers: { Accept: "image/avif,image/webp,image/*,*/*" },
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!response.ok) {
+    const error = new Error(`Emby 图片读取失败：HTTP ${response.status}`);
+    (error as Error & { status?: number }).status = response.status === 404 ? 404 : 502;
+    throw error;
+  }
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  if (!contentType.startsWith("image/")) throw new Error("Emby 返回的不是图片。");
+  return { body: Buffer.from(await response.arrayBuffer()), contentType };
+}
+
 const fields = [
   "ProviderIds",
   "UserData",
@@ -189,6 +319,7 @@ const fields = [
   "BackdropImageTags",
   "SeriesId",
   "SeriesName",
+  "SeriesPrimaryImageTag",
   "ParentIndexNumber",
   "IndexNumber"
 ].join(",");
@@ -200,13 +331,14 @@ export async function searchLibrary(session: EmbySession, query: string, limit =
     UserId: session.userId,
     SearchTerm: searchTerm,
     Recursive: "true",
-    IncludeItemTypes: "Movie,Series,Episode",
+    IncludeItemTypes: "Movie,Series",
     Fields: fields,
     Limit: String(limit)
   });
   try {
     const data = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${params.toString()}`);
-    if (data.Items?.length) return data.Items.map((item) => toMediaItem(session, item));
+    const directMatches = (data.Items || []).filter((item) => item.Type === "Movie" || item.Type === "Series");
+    if (directMatches.length) return enrichMediaPosters(session, directMatches);
   } catch (error) {
     const status = (error as Error & { status?: number }).status;
     if (status !== 400 && status !== 404) throw error;
@@ -215,17 +347,18 @@ export async function searchLibrary(session: EmbySession, query: string, limit =
   const fallbackParams = new URLSearchParams({
     UserId: session.userId,
     Recursive: "true",
-    IncludeItemTypes: "Movie,Series,Episode",
+    IncludeItemTypes: "Movie,Series",
     Fields: fields,
     Limit: "5000"
   });
   const fallback = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${fallbackParams.toString()}`);
   const normalizedQuery = normalizeTitle(searchTerm);
   if (!normalizedQuery) return [];
-  return (fallback.Items || [])
+  const matches = (fallback.Items || [])
+    .filter((item) => item.Type === "Movie" || item.Type === "Series")
     .filter((item) => [item.Name, item.OriginalTitle, item.SeriesName].some((value) => normalizeTitle(value).includes(normalizedQuery)))
-    .slice(0, limit)
-    .map((item) => toMediaItem(session, item));
+    .slice(0, limit);
+  return enrichMediaPosters(session, matches);
 }
 
 export async function getResumeItems(session: EmbySession, limit = 30) {
@@ -236,7 +369,7 @@ export async function getResumeItems(session: EmbySession, limit = 30) {
     Limit: String(limit)
   });
   const data = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items/Resume?${params.toString()}`);
-  return (data.Items || []).map((item) => toMediaItem(session, item));
+  return enrichMediaPosters(session, data.Items || []);
 }
 
 export async function getLatestItems(session: EmbySession, limit = 36) {
@@ -282,12 +415,13 @@ export async function getLatestItems(session: EmbySession, limit = 36) {
   }));
 
   const groupedSeriesIds = new Set(groupedEpisodes.map((item) => item.seriesId).filter(Boolean));
-  return [
+  const items = [
     ...standalone.filter((item) => item.Type !== "Series" || !groupedSeriesIds.has(item.Id)).map((item) => toMediaItem(session, item)),
     ...groupedEpisodes
   ]
     .sort((a, b) => (b.dateCreated || "").localeCompare(a.dateCreated || ""))
     .slice(0, limit);
+  return enrichMappedPosters(items);
 }
 
 function formatEpisodeRange(episodes: EmbyItem[]) {
@@ -333,7 +467,7 @@ export async function getPlayedHistory(session: EmbySession, limit = 36) {
     Limit: String(limit)
   });
   const data = await embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${params.toString()}`);
-  return (data.Items || []).map((item) => toMediaItem(session, item));
+  return enrichMediaPosters(session, data.Items || []);
 }
 
 export async function getStats(session: EmbySession) {
@@ -349,20 +483,31 @@ export async function getStats(session: EmbySession) {
     return data.TotalRecordCount || 0;
   };
 
-  const [movies, series, played, resume, latest] = await Promise.all([
+  const resumeParams = new URLSearchParams({
+    UserId: session.userId,
+    IncludeItemTypes: "Movie,Episode",
+    Fields: "UserData,RunTimeTicks",
+    Limit: "100"
+  });
+  const [movies, series, played, resumeData] = await Promise.all([
     queryCount("Movie"),
     queryCount("Series"),
     queryCount("Movie,Series,Episode", { Filters: "IsPlayed" }),
-    queryCount("Movie,Episode", { Filters: "IsResumable" }),
-    getLatestItems(session, 1)
+    embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items/Resume?${resumeParams.toString()}`)
   ]);
+  const resumeItems = resumeData.Items || [];
+  const progressValues = resumeItems.map(progress).filter((value): value is number => value !== undefined);
+  const resumeProgressPercent = progressValues.length
+    ? Math.round(progressValues.reduce((total, value) => total + value, 0) / progressValues.length)
+    : 0;
 
   return {
     movies,
     series,
     played,
-    resume,
-    latest: latest.length
+    resume: resumeItems.length,
+    resumeProgressPercent,
+    latest: 0
   };
 }
 

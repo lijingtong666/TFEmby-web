@@ -13,7 +13,7 @@ RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate && pnpm 
 
 FROM node:20-alpine
 WORKDIR /app
-ARG APP_VERSION=0.6.9
+ARG APP_VERSION=0.6.10
 RUN apk add --no-cache tzdata
 ENV NODE_ENV=production
 ENV PORT=8787

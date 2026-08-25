@@ -16,6 +16,7 @@ export type MediaItem = {
   year?: number;
   overview?: string;
   poster?: string;
+  posterFallback?: string;
   backdrop?: string;
   dateCreated?: string;
   premiereDate?: string;

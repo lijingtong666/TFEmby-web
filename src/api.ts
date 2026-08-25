@@ -28,23 +28,29 @@ export function saveSession(session: UserSession | null) {
   else localStorage.setItem(sessionKey, JSON.stringify(session));
 }
 
-async function request<T>(path: string, session?: UserSession | EmbySession | null, init?: RequestInit): Promise<T> {
+function authHeaders(session?: UserSession | EmbySession | null) {
   const appSession = session && "token" in session ? session : null;
   const embySession = session && "accessToken" in session ? session : appSession?.emby;
+  return {
+    ...(appSession?.token ? { Authorization: `Bearer ${appSession.token}` } : {}),
+    ...(embySession
+      ? {
+          "x-emby-token": embySession.accessToken,
+          "x-emby-user-id": embySession.userId,
+          "x-emby-user-name": encodeURIComponent(embySession.userName),
+          "x-emby-server-url": embySession.serverUrl
+        }
+      : {})
+  };
+}
+
+async function request<T>(path: string, session?: UserSession | EmbySession | null, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
-      ...(appSession?.token ? { Authorization: `Bearer ${appSession.token}` } : {}),
-      ...(embySession
-        ? {
-            "x-emby-token": embySession.accessToken,
-            "x-emby-user-id": embySession.userId,
-            "x-emby-user-name": encodeURIComponent(embySession.userName),
-            "x-emby-server-url": embySession.serverUrl
-          }
-        : {}),
+      ...authHeaders(session),
       ...(init?.headers || {})
     }
   });
@@ -75,12 +81,17 @@ export const api = {
       body: JSON.stringify({ username, password })
     }),
   stats: (session: EmbySession) =>
-    request<{ movies: number; series: number; played: number; resume: number; latest: number }>("/api/emby/stats", session),
+    request<{ movies: number; series: number; played: number; resume: number; resumeProgressPercent: number; latest: number }>("/api/emby/stats", session),
   search: (session: EmbySession, query: string) =>
     request<MediaItem[]>(`/api/emby/search?q=${encodeURIComponent(query)}`, session),
   resume: (session: EmbySession) => request<MediaItem[]>("/api/emby/resume", session),
   history: (session: EmbySession) => request<MediaItem[]>("/api/emby/history", session),
   latest: (session: EmbySession) => request<MediaItem[]>("/api/emby/latest", session),
+  mediaImage: async (path: string) => {
+    const response = await fetch(path, { headers: authHeaders(loadSession()) });
+    if (!response.ok) throw new Error(`封面读取失败：HTTP ${response.status}`);
+    return response.blob();
+  },
   chart: (source: string, chart: string, media: string, period: string, page: number, year: string, genre: string, session?: EmbySession | null) => {
     const params = new URLSearchParams({ media, period, page: String(page) });
     if (year) params.set("year", year);

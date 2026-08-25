@@ -20,7 +20,7 @@ Emby 影视库 Web UI，支持片库搜索、继续观看、播放历史、最�
 - Telegram 菜单用户 ID 白名单（管理员 Chat ID 默认可用）
 - 自动清理旧 Telegram Webhook、同步命令菜单，并支持后台主动发送菜单
 - 后台显示 TMDB、Telegram 和网络代理延迟
-- 全网热榜支持最多 30 页、年份与影片类型筛选
+- 全网热榜与探索发现支持最多 5 页、年份与影片类型筛选
 - 剧集详情显示总季数、总集数，并可按季查看单集信息
 - TMDB API 与图片服务地址支持内置选择、自定义多地址和自动故障切换
 - 片库搜索支持中文 Emby 用户名、请求超时、兼容搜索和空结果提示
@@ -146,7 +146,7 @@ docker compose down
 发布唯一的多架构 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.6.9 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.6.10 ./scripts/docker-buildx-push.sh
 ```
 
 镜像平台：

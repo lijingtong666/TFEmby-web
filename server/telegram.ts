@@ -4,7 +4,7 @@ import path from "node:path";
 import type { AppSession } from "./auth.js";
 import { config, getTmdbApiBases, getTmdbImageBases, tmdbApiUrl, tmdbImageUrl } from "./config.js";
 import { externalServiceFetch, testProxyLatency } from "./proxy.js";
-import { createMediaRequest } from "./requests.js";
+import { createMediaRequest, updateMediaRequest } from "./requests.js";
 import { fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
 import type { ChartItem, MediaRequest, RequestStatus } from "./types.js";
 
@@ -272,12 +272,13 @@ async function telegramForm(settings: TgBotConfig, method: string, values: Recor
   return result;
 }
 
-async function telegramMultipart(settings: TgBotConfig, chatId: string, image: Blob, caption: string) {
+async function telegramMultipart(settings: TgBotConfig, chatId: string, image: Blob, caption: string, replyMarkup?: Record<string, unknown>) {
   const form = new FormData();
   form.set("chat_id", chatId);
   form.set("photo", image, "poster.jpg");
   form.set("caption", caption);
   form.set("parse_mode", "HTML");
+  if (replyMarkup) form.set("reply_markup", JSON.stringify(replyMarkup));
   const response = await externalServiceFetch(`${config.telegramApiBase}/bot${settings.telegramBotToken}/sendPhoto`, {
     method: "POST",
     body: form,
@@ -312,7 +313,7 @@ async function answerCallback(settings: TgBotConfig, callbackQueryId: string, te
   });
 }
 
-async function sendTelegram(message: string, photo?: string) {
+async function sendTelegram(message: string, photo?: string, replyMarkup?: Record<string, unknown>) {
   const settings = normalizeBotConfig({ telegramBotToken: config.telegramBotToken, telegramChatId: config.telegramChatId });
   if (!botConfigured(settings)) return { configured: false, sent: 0 };
   let sent = 0;
@@ -321,7 +322,7 @@ async function sendTelegram(message: string, photo?: string) {
       try {
         const url = new URL(photo, "http://localhost");
         const response = await fetchTmdbImage(url.searchParams.get("path") || "", url.searchParams.get("size") || "w500");
-        await telegramMultipart(settings, chatId, await response.blob(), message);
+        await telegramMultipart(settings, chatId, await response.blob(), message, replyMarkup);
         sent += 1;
         continue;
       } catch {
@@ -330,14 +331,14 @@ async function sendTelegram(message: string, photo?: string) {
     }
     if (photo?.startsWith("https://")) {
       try {
-        await telegramForm(settings, "sendPhoto", { chat_id: chatId, photo, caption: message, parse_mode: "HTML" });
+        await telegramForm(settings, "sendPhoto", { chat_id: chatId, photo, caption: message, parse_mode: "HTML", ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {}) });
         sent += 1;
         continue;
       } catch {
         // Telegram may fail to download a remote poster; text is still delivered.
       }
     }
-    await telegramForm(settings, "sendMessage", { chat_id: chatId, text: message, parse_mode: "HTML", disable_web_page_preview: "true" });
+    await telegramForm(settings, "sendMessage", { chat_id: chatId, text: message, parse_mode: "HTML", disable_web_page_preview: "true", ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {}) });
     sent += 1;
   }
   return { configured: true, sent };
@@ -363,7 +364,12 @@ export function notifyRequestCreated(request: MediaRequest) {
     `<b>上映年份：</b>${request.year ? escapeHtml(request.year) : "未知"}`,
     `<b>TMDB ID：</b>${escapeHtml(request.tmdbId)}`,
     `<b>详情链接：</b><a href="${tmdbUrl(request)}">打开 TMDB</a>`
-  ].join("\n"), request.poster);
+  ].join("\n"), request.poster, {
+    inline_keyboard: [[
+      { text: "✅ 接受", callback_data: `adminreq:approve:${request.id}` },
+      { text: "❌ 拒绝", callback_data: `adminreq:reject:${request.id}` }
+    ]]
+  });
 }
 
 export function notifyRequestStatus(request: MediaRequest, operator: string) {
@@ -1312,6 +1318,35 @@ async function handleTelegramCallback(settings: TgBotConfig, state: TelegramStat
   }
 
   const parts = data.split(":");
+  if (parts[0] === "adminreq") {
+    if (!parseChatIds(settings.telegramChatId).includes(chatId)) {
+      await answerCallback(settings, callbackId, "仅管理员可以处理求片申请", true);
+      return;
+    }
+    if (parts[1] === "done") {
+      await answerCallback(settings, callbackId, "该申请已经处理", true);
+      return;
+    }
+    const status = parts[1] === "approve" ? "approved" : parts[1] === "reject" ? "rejected" : null;
+    const requestId = parts[2] || "";
+    if (!status || !requestId) {
+      await answerCallback(settings, callbackId, "操作参数无效", true);
+      return;
+    }
+    const updated = await updateMediaRequest(requestId, status);
+    const operator = String(user.username ? `@${user.username}` : user.first_name || user.id || "Telegram 管理员");
+    await answerCallback(settings, callbackId, status === "approved" ? "已接受求片申请" : "已拒绝求片申请");
+    const messageId = String(callback.message?.message_id || "");
+    if (messageId) {
+      await telegramForm(settings, "editMessageReplyMarkup", {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: JSON.stringify({ inline_keyboard: [] })
+      }).catch(() => undefined);
+    }
+    await notifyRequestStatus(updated, operator);
+    return;
+  }
   if (parts[0] !== "req") return;
   if (parts[1] === "exists") {
     await answerCallback(settings, callbackId, `第 ${parts[3]} 季已在库中`, true);
