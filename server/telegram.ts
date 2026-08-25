@@ -63,6 +63,8 @@ export type TgBotConfig = {
   telegramBotToken: string;
   telegramChatId: string;
   telegramMenuUserIds: string;
+  telegramGroupChatIds: string;
+  telegramAdminUserIds: string;
   tmdbApiKey: string;
   tmdbLanguage: string;
   embyUrl: string;
@@ -163,6 +165,8 @@ function defaultBotConfig(): TgBotConfig {
     telegramBotToken: config.telegramBotToken,
     telegramChatId: config.telegramChatId,
     telegramMenuUserIds: "",
+    telegramGroupChatIds: "",
+    telegramAdminUserIds: "",
     tmdbApiKey: config.tmdbApiKey,
     tmdbLanguage: "zh-CN",
     embyUrl: config.embyServerUrl,
@@ -187,6 +191,8 @@ function normalizeBotConfig(input: Partial<TgBotConfig>): TgBotConfig {
     telegramBotToken: String(input.telegramBotToken ?? fallback.telegramBotToken).trim(),
     telegramChatId: String(input.telegramChatId ?? fallback.telegramChatId).trim(),
     telegramMenuUserIds: String(input.telegramMenuUserIds ?? fallback.telegramMenuUserIds).trim(),
+    telegramGroupChatIds: String(input.telegramGroupChatIds ?? fallback.telegramGroupChatIds).trim(),
+    telegramAdminUserIds: String(input.telegramAdminUserIds ?? fallback.telegramAdminUserIds).trim(),
     tmdbApiKey: String(input.tmdbApiKey ?? fallback.tmdbApiKey).trim(),
     tmdbLanguage: String(input.tmdbLanguage ?? fallback.tmdbLanguage).trim() || "zh-CN",
     embyUrl: cleanUrl(input.embyUrl ?? fallback.embyUrl),
@@ -244,13 +250,24 @@ function saveState(state: TelegramState) {
 }
 
 function parseChatIds(value: string) {
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
+  return value.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
 }
 
-function menuAllowed(settings: TgBotConfig, chatId: string, userId: string) {
-  const adminChats = parseChatIds(settings.telegramChatId);
+function groupChat(chatId: string, chatType = "") {
+  return ["group", "supergroup"].includes(chatType) || chatId.startsWith("-");
+}
+
+function menuAllowed(settings: TgBotConfig, chatId: string, userId: string, chatType = "") {
+  if (groupChat(chatId, chatType)) return parseChatIds(settings.telegramGroupChatIds).includes(chatId);
+  const notificationChats = parseChatIds(settings.telegramChatId);
   const menuUsers = parseChatIds(settings.telegramMenuUserIds);
-  return adminChats.includes(chatId) || menuUsers.includes(userId) || menuUsers.includes(chatId);
+  return notificationChats.includes(chatId) || menuUsers.includes(userId) || menuUsers.includes(chatId);
+}
+
+function adminAllowed(settings: TgBotConfig, chatId: string, userId: string, chatType = "") {
+  const adminUsers = parseChatIds(settings.telegramAdminUserIds);
+  if (adminUsers.length) return adminUsers.includes(userId);
+  return !groupChat(chatId, chatType) && parseChatIds(settings.telegramChatId).includes(chatId) && chatId === userId;
 }
 
 function botConfigured(settings: TgBotConfig) {
@@ -1117,8 +1134,8 @@ function menuText() {
     "🤖 <b>TFEmby Web 机器人</b>",
     "",
     "/recent - 查看最近入库 20 条",
-    "/search - 搜索 Emby 片库",
-    "/request - 按片名或 TMDB ID 求片",
+    "/search 片名 - 搜索 Emby 片库",
+    "/request 片名 - 按片名或 TMDB ID 求片",
     "/cancel - 取消当前操作",
     "/help - 查看菜单"
   ].join("\n");
@@ -1162,7 +1179,7 @@ async function syncTelegramCommands(settings: TgBotConfig) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ menu_button: { type: "commands" } })
     });
-    for (const chatId of parseChatIds(settings.telegramMenuUserIds)) {
+    for (const chatId of parseChatIds(settings.telegramMenuUserIds).filter((value) => !value.startsWith("-"))) {
       await fetchJson(`${config.telegramApiBase}/bot${settings.telegramBotToken}/setChatMenuButton`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1183,8 +1200,10 @@ async function syncTelegramCommands(settings: TgBotConfig) {
 async function sendConfiguredMenu(settings: TgBotConfig) {
   await syncTelegramCommands(settings);
   const configuredUsers = parseChatIds(settings.telegramMenuUserIds);
-  const targets = [...new Set(configuredUsers.length ? configuredUsers : parseChatIds(settings.telegramChatId))];
-  if (!targets.length) throw new Error("请先填写菜单用户 ID 或 Chat ID。");
+  const configuredGroups = parseChatIds(settings.telegramGroupChatIds);
+  const configuredTargets = [...configuredUsers, ...configuredGroups];
+  const targets = [...new Set(configuredTargets.length ? configuredTargets : parseChatIds(settings.telegramChatId))];
+  if (!targets.length) throw new Error("请先填写菜单用户 ID、群组命令 Chat ID 或通知 Chat ID。");
   let sent = 0;
   const failures: string[] = [];
   for (const chatId of targets) {
@@ -1196,7 +1215,7 @@ async function sendConfiguredMenu(settings: TgBotConfig) {
     }
   }
   if (!sent) {
-    throw new Error(`菜单发送失败。请先在 Telegram 中打开机器人并发送 /start。 ${failures.join("；")}`);
+    throw new Error(`菜单发送失败。私聊用户需要先发送 /start；群组需要先添加机器人并允许发消息。 ${failures.join("；")}`);
   }
   lastMenuAt = nowIso();
   lastMenuError = failures.join("；");
@@ -1206,6 +1225,30 @@ async function sendConfiguredMenu(settings: TgBotConfig) {
 function telegramUserName(user: Record<string, any>) {
   if (user.username) return `@${user.username}`;
   return [user.first_name, user.last_name].map((value) => String(value || "").trim()).filter(Boolean).join(" ") || `Telegram ${user.id || "用户"}`;
+}
+
+function telegramUserMention(user: Record<string, any>) {
+  if (user.username) return `@${escapeHtml(user.username)}`;
+  const userId = String(user.id || "");
+  const name = escapeHtml(telegramUserName(user));
+  return userId ? `<a href="tg://user?id=${escapeHtml(userId)}">${name}</a>` : name;
+}
+
+async function sendConversationPrompt(
+  settings: TgBotConfig,
+  chatId: string,
+  chatType: string,
+  user: Record<string, any>,
+  action: "search" | "request"
+) {
+  const prompt = action === "search" ? "请输入要查询的影片名称或 TMDB ID：" : "请输入影片名称或 TMDB ID：";
+  const isGroup = groupChat(chatId, chatType);
+  await sendBotText(
+    settings,
+    isGroup ? `${telegramUserMention(user)} ${prompt}` : prompt,
+    chatId,
+    isGroup ? { force_reply: true, selective: true, input_field_placeholder: action === "search" ? "回复影片名称或 TMDB ID" : "回复求片名称或 TMDB ID" } : undefined
+  );
 }
 
 function telegramSession(chatId: string, user: Record<string, any>): AppSession {
@@ -1308,6 +1351,7 @@ async function showTvSeasons(settings: TgBotConfig, chatId: string, tmdbId: stri
 
 async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState, message: Record<string, any>) {
   const chatId = String(message.chat?.id || "");
+  const chatType = String(message.chat?.type || "");
   const user = message.from || {};
   const key = conversationKey(chatId, user);
   const text = String(message.text || "").trim();
@@ -1331,7 +1375,7 @@ async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState
     if (argument) await sendLibrarySearch(settings, chatId, argument);
     else {
       state.conversations[key] = { action: "search", at: nowIso() };
-      await sendBotText(settings, "请输入要查询的影片名称或 TMDB ID：", chatId);
+      await sendConversationPrompt(settings, chatId, chatType, user, "search");
     }
     return;
   }
@@ -1340,7 +1384,7 @@ async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState
     if (argument) await sendRequestCandidates(settings, chatId, argument);
     else {
       state.conversations[key] = { action: "request", at: nowIso() };
-      await sendBotText(settings, "请输入影片名称或 TMDB ID：", chatId);
+      await sendConversationPrompt(settings, chatId, chatType, user, "request");
     }
     return;
   }
@@ -1365,6 +1409,7 @@ async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState
 async function handleTelegramCallback(settings: TgBotConfig, state: TelegramState, callback: Record<string, any>) {
   const callbackId = String(callback.id || "");
   const chatId = String(callback.message?.chat?.id || "");
+  const chatType = String(callback.message?.chat?.type || "");
   const user = callback.from || {};
   const data = String(callback.data || "");
   const key = conversationKey(chatId, user);
@@ -1378,14 +1423,14 @@ async function handleTelegramCallback(settings: TgBotConfig, state: TelegramStat
     await answerCallback(settings, callbackId);
     const action = data === "menu:search" ? "search" : "request";
     state.conversations[key] = { action, at: nowIso() };
-    await sendBotText(settings, action === "search" ? "请输入要查询的影片名称或 TMDB ID：" : "请输入影片名称或 TMDB ID：", chatId);
+    await sendConversationPrompt(settings, chatId, chatType, user, action);
     return;
   }
 
   const parts = data.split(":");
   if (parts[0] === "adminreq") {
-    if (!parseChatIds(settings.telegramChatId).includes(chatId)) {
-      await answerCallback(settings, callbackId, "仅管理员可以处理求片申请", true);
+    if (!adminAllowed(settings, chatId, String(user.id || ""), chatType)) {
+      await answerCallback(settings, callbackId, "仅配置的管理员用户可以处理求片申请", true);
       return;
     }
     if (parts[1] === "done") {
@@ -1461,11 +1506,25 @@ async function telegramMenuLoop() {
         if (typeof update.update_id === "number") state.telegramUpdateOffset = update.update_id + 1;
         const chatId = String(update.message?.chat?.id || update.callback_query?.message?.chat?.id || "");
         const userId = String(update.message?.from?.id || update.callback_query?.from?.id || "");
-        if (!menuAllowed(settings, chatId, userId)) {
+        const chatType = String(update.message?.chat?.type || update.callback_query?.message?.chat?.type || "");
+        const callbackData = String(update.callback_query?.data || "");
+        const isAdminRequest = callbackData.startsWith("adminreq:");
+        const allowed = isAdminRequest
+          ? adminAllowed(settings, chatId, userId, chatType)
+          : menuAllowed(settings, chatId, userId, chatType);
+        if (!allowed) {
           if (update.callback_query?.id) {
-            await answerCallback(settings, String(update.callback_query.id), "你没有使用机器人菜单的权限", true).catch(() => undefined);
+            await answerCallback(
+              settings,
+              String(update.callback_query.id),
+              isAdminRequest ? "你不在管理员用户 ID 列表中" : "你没有使用机器人菜单的权限",
+              true
+            ).catch(() => undefined);
           } else if (["/start", "/help"].includes(String(update.message?.text || "").split(/\s+/)[0].split("@")[0].toLowerCase())) {
-            await sendBotText(settings, `你的 Telegram 用户 ID：<code>${escapeHtml(userId || chatId)}</code>\n请联系管理员将该 ID 加入“菜单用户 ID”。`, chatId).catch(() => undefined);
+            const accessHint = groupChat(chatId, chatType)
+              ? `此群尚未启用机器人命令。\n群组 Chat ID：<code>${escapeHtml(chatId)}</code>\n请联系管理员加入“群组命令 Chat ID”。`
+              : `你的 Telegram 用户 ID：<code>${escapeHtml(userId || chatId)}</code>\n请联系管理员将该 ID 加入“菜单用户 ID”。`;
+            await sendBotText(settings, accessHint, chatId).catch(() => undefined);
           }
           continue;
         }

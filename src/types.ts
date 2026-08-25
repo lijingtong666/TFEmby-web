@@ -155,6 +155,8 @@ export type TgBotConfig = {
   telegramBotToken: string;
   telegramChatId: string;
   telegramMenuUserIds: string;
+  telegramGroupChatIds: string;
+  telegramAdminUserIds: string;
   tmdbApiKey: string;
   tmdbLanguage: string;
   embyUrl: string;

@@ -840,7 +840,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.15"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.16"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -1539,6 +1539,8 @@ const defaultBotConfig: TgBotConfig = {
   telegramBotToken: "",
   telegramChatId: "",
   telegramMenuUserIds: "",
+  telegramGroupChatIds: "",
+  telegramAdminUserIds: "",
   tmdbApiKey: "",
   tmdbLanguage: "zh-CN",
   embyUrl: "",
@@ -1818,11 +1820,13 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
         <div className="settingsGroupHead"><h3>Telegram 通知</h3><span>求片、入库和用户播放消息推送</span></div>
         <div className="settingsGrid">
           <SecretSettingField label="Bot Token" value={draft.web.telegramBotToken} onChange={(value) => updateWeb("telegramBotToken", value)} />
-          <SettingField label="Chat ID" value={draft.web.telegramChatId} onChange={(value) => updateWeb("telegramChatId", value)} placeholder="多个 ID 使用英文逗号分隔" />
-          <SettingField label="菜单用户 ID" value={bot.telegramMenuUserIds} onChange={(value) => updateBot("telegramMenuUserIds", value)} placeholder="允许使用机器人菜单的 Telegram 用户 ID" />
+          <SettingField label="通知 Chat ID / 群组 ID" value={draft.web.telegramChatId} onChange={(value) => updateWeb("telegramChatId", value)} placeholder="私聊或负数群组 ID，多个使用逗号分隔" />
+          <SettingField label="群组命令 Chat ID" value={bot.telegramGroupChatIds} onChange={(value) => updateBot("telegramGroupChatIds", value)} placeholder="允许群成员调用命令的群组 ID，例如 -100..." />
+          <SettingField label="菜单用户 ID" value={bot.telegramMenuUserIds} onChange={(value) => updateBot("telegramMenuUserIds", value)} placeholder="允许私聊使用机器人菜单的 Telegram 用户 ID" />
+          <SettingField label="管理员用户 ID" value={bot.telegramAdminUserIds} onChange={(value) => updateBot("telegramAdminUserIds", value)} placeholder="允许接受或拒绝求片的个人用户 ID" />
           <SettingField label="Telegram API 地址" value={draft.web.telegramApiBase} onChange={(value) => updateWeb("telegramApiBase", value)} placeholder="https://api.telegram.org" />
         </div>
-        <div className="settingsHelp">菜单用户需要先在 Telegram 私聊机器人并发送 /start，再保存用户 ID 并点击“发送菜单”。</div>
+        <div className="settingsHelp">群组 ID 通常以 -100 开头。机器人加入群组并拥有发消息权限后，将群组 ID 填入通知目标即可接收通知；填入“群组命令 Chat ID”后，群成员可以调用 /recent、/search 和 /request。求片接受或拒绝仅“管理员用户 ID”中的个人账号可操作。</div>
         <div className="settingsTestRow">
           <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={() => test("telegram")}><TestTube2 size={16} />{busy === "telegram" ? "测试中" : "测试 Telegram"}</button>
           <button type="button" className="softBtn" disabled={Boolean(busy)} onClick={sendTelegramMenu}><Send size={16} />{busy === "menu" ? "发送中" : "发送菜单"}</button>

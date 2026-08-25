@@ -16,8 +16,8 @@ Emby 影视库 Web UI，支持片库搜索、继续观看、播放历史、最�
 
 - 项目名称和 Emby 服务器地址
 - TMDB API Key、Bearer Token、语言和豆瓣数据源
-- Telegram Bot Token、Chat ID 和 API 地址
-- Telegram 菜单用户 ID 白名单（管理员 Chat ID 默认可用）
+- Telegram Bot Token、私聊或群组通知 Chat ID 和 API 地址
+- Telegram 私聊菜单用户、允许调用命令的群组和求片审批管理员白名单
 - 自动清理旧 Telegram Webhook、同步命令菜单，并支持后台主动发送菜单
 - 后台显示 TMDB、Telegram 和网络代理延迟
 - 全网热榜与探索发现支持最多 5 页、年份与影片类型筛选
@@ -41,12 +41,17 @@ Telegram 通知由 TFEmby Web 自己的 Node 服务直接完成，没有外部�
 - TMDB ID、评分、题材、地区、质量、总大小、年份和入库时间
 - 剧情简介、内容分级、别名和 TMDB 详情链接
 - 用户求片申请和管理员处理状态通知
+- 支持向一个或多个群组发送入库、播放和求片通知
+- 支持群内成员调用 `/recent`、`/search` 和 `/request`，无参数时使用定向回复继续输入
+- 求片接受和拒绝按钮仅配置的 Telegram 管理员用户可以操作
 - `/recent` 最近入库和 `/help` 帮助菜单
 - `/search` 搜索 Emby 片库是否存在，支持片名或 TMDB ID
 - `/request` 用户求片，支持片名或 TMDB ID、影片选择和按季申请
 - Webhook 与备用定时扫描
 
 剧集支持按季求片。系统会读取 Emby 已有季度并显示“库中存在”，缺少的季度可单独提交。求片通知会包含提交用户、影片名称、电影或剧集类型、申请季度、年份、TMDB ID 和详情链接。
+
+群组 ID 通常以 `-100` 开头。将群组 ID 填入“通知 Chat ID / 群组 ID”即可接收通知；同时填入“群组命令 Chat ID”后群成员可以调用命令。个人 Telegram 用户 ID 应填入“管理员用户 ID”，只有这些用户可以在群内处理求片申请。
 
 ### Emby Webhook
 
@@ -147,7 +152,7 @@ docker compose down
 发布唯一的多架构 `latest`：
 
 ```bash
-IMAGE=xiaotong378/tfembyweb VERSION=0.6.15 ./scripts/docker-buildx-push.sh
+IMAGE=xiaotong378/tfembyweb VERSION=0.6.16 ./scripts/docker-buildx-push.sh
 ```
 
 镜像平台：
