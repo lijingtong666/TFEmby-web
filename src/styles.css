@@ -2281,6 +2281,25 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
+.settingsSaveStatus {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.settingsSaveStatus > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.settingsSaveStatus strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  font-size: 13px;
+}
+
 .settingsSave {
   width: auto;
   min-height: 44px;
@@ -2331,6 +2350,10 @@ h2 {
   }
 
   .settingsSave {
+    width: 100%;
+  }
+
+  .settingsSaveStatus {
     width: 100%;
   }
 }

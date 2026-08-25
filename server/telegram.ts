@@ -14,6 +14,7 @@ type EmbyItem = Record<string, any>;
 type TelegramState = {
   seen: Record<string, { title: string; kind: string; type: string; eventAt: string; at: string }>;
   conversations: Record<string, { action: "search" | "request"; at: string }>;
+  requestSelections: Record<string, { chatId: string; messageIds: number[]; createdAt: string }>;
   telegramUpdateOffset: number | null;
   lastScanAt: string | null;
   lastWebhookAt: string | null;
@@ -215,6 +216,7 @@ function defaultState(): TelegramState {
   return {
     seen: {},
     conversations: {},
+    requestSelections: {},
     telegramUpdateOffset: null,
     lastScanAt: null,
     lastWebhookAt: null,
@@ -329,6 +331,43 @@ async function sendBotText(settings: TgBotConfig, text: string, chatId?: string,
     });
   }
   return targets.length;
+}
+
+async function sendBotPoster(
+  settings: TgBotConfig,
+  chatId: string,
+  caption: string,
+  poster?: string,
+  replyMarkup?: Record<string, unknown>
+) {
+  if (poster?.startsWith("/api/tmdb/image")) {
+    try {
+      const url = new URL(poster, "http://localhost");
+      const response = await fetchTmdbImage(url.searchParams.get("path") || "", "w185");
+      return await telegramMultipart(settings, chatId, await response.blob(), caption, replyMarkup);
+    } catch (error) {
+      addLog(`求片候选海报发送失败，改发文字：${(error as Error).message}`);
+    }
+  } else if (poster?.startsWith("https://")) {
+    try {
+      return await telegramForm(settings, "sendPhoto", {
+        chat_id: chatId,
+        photo: poster,
+        caption,
+        parse_mode: "HTML",
+        ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {})
+      });
+    } catch (error) {
+      addLog(`求片候选海报发送失败，改发文字：${(error as Error).message}`);
+    }
+  }
+  return telegramForm(settings, "sendMessage", {
+    chat_id: chatId,
+    text: caption,
+    parse_mode: "HTML",
+    disable_web_page_preview: "true",
+    ...(replyMarkup ? { reply_markup: JSON.stringify(replyMarkup) } : {})
+  });
 }
 
 async function answerCallback(settings: TgBotConfig, callbackQueryId: string, text = "", showAlert = false) {
@@ -1275,17 +1314,65 @@ async function tmdbRequestCandidates(query: string) {
   return candidates;
 }
 
-async function sendRequestCandidates(settings: TgBotConfig, chatId: string, query: string) {
-  const candidates = (await tmdbRequestCandidates(query)).filter((item) => item.externalIds.tmdb);
+function requestSelectionId() {
+  return crypto.randomBytes(5).toString("hex");
+}
+
+function pruneRequestSelections(state: TelegramState) {
+  const expiresAt = Date.now() - 30 * 60 * 1000;
+  state.requestSelections ||= {};
+  for (const [selectionId, selection] of Object.entries(state.requestSelections)) {
+    if (Date.parse(selection.createdAt) < expiresAt) delete state.requestSelections[selectionId];
+  }
+}
+
+async function clearRequestSelection(
+  settings: TgBotConfig,
+  state: TelegramState,
+  selectionId: string,
+  fallbackChatId: string,
+  fallbackMessageId?: number
+) {
+  const selection = state.requestSelections?.[selectionId];
+  const chatId = selection?.chatId || fallbackChatId;
+  const messageIds = selection?.messageIds?.length ? selection.messageIds : fallbackMessageId ? [fallbackMessageId] : [];
+  await Promise.all(messageIds.map((messageId) => telegramForm(settings, "deleteMessage", {
+    chat_id: chatId,
+    message_id: String(messageId)
+  }).catch(() => undefined)));
+  if (selectionId) delete state.requestSelections?.[selectionId];
+}
+
+async function sendRequestCandidates(settings: TgBotConfig, state: TelegramState, chatId: string, query: string) {
+  const candidates = (await tmdbRequestCandidates(query)).filter((item) => item.externalIds.tmdb).slice(0, 6);
   if (!candidates.length) {
     await sendBotText(settings, `未在 TMDB 找到“${escapeHtml(query)}”。`, chatId);
     return;
   }
-  const keyboard = candidates.map((item) => [{
-    text: `${item.mediaType === "tv" ? "📺" : "🎬"} ${item.title.slice(0, 32)}${item.year ? ` (${item.year})` : ""}`,
-    callback_data: `req:item:${item.mediaType}:${item.externalIds.tmdb}`
-  }]);
-  await sendBotText(settings, "请选择要申请的影片：", chatId, { inline_keyboard: keyboard });
+  pruneRequestSelections(state);
+  const selectionId = requestSelectionId();
+  const messageIds: number[] = [];
+  const intro = await telegramForm(settings, "sendMessage", {
+    chat_id: chatId,
+    text: "请选择要申请的影片：",
+    parse_mode: "HTML"
+  });
+  if (intro.result?.message_id) messageIds.push(intro.result.message_id);
+  for (const item of candidates) {
+    const rating = typeof item.voteAverage === "number" ? `\n⭐ ${item.voteAverage.toFixed(1)}` : "";
+    const caption = [
+      `${item.mediaType === "tv" ? "📺" : "🎬"} <b>${escapeHtml(item.title)}</b>${item.year ? ` (${item.year})` : ""}`,
+      `${item.mediaType === "tv" ? "剧集" : "电影"} · TMDB ${escapeHtml(item.externalIds.tmdb)}${rating}`
+    ].join("\n");
+    const result = await sendBotPoster(settings, chatId, caption, item.poster, {
+      inline_keyboard: [[{
+        text: `选择《${item.title.slice(0, 22)}》`,
+        callback_data: `req:item:${selectionId}:${item.mediaType}:${item.externalIds.tmdb}`
+      }]]
+    });
+    if (result.result?.message_id) messageIds.push(result.result.message_id);
+  }
+  state.requestSelections[selectionId] = { chatId, messageIds, createdAt: nowIso() };
 }
 
 async function sendLibrarySearch(settings: TgBotConfig, chatId: string, query: string) {
@@ -1335,18 +1422,30 @@ async function submitTelegramRequest(settings: TgBotConfig, chatId: string, user
   await sendBotText(settings, `📨 已提交《${escapeHtml(item.title)}》${seasonNumber ? `第 ${seasonNumber} 季` : ""}。\nTMDB ID：${escapeHtml(item.externalIds.tmdb)}`, chatId);
 }
 
-async function showTvSeasons(settings: TgBotConfig, chatId: string, tmdbId: string) {
+async function showTvSeasons(settings: TgBotConfig, state: TelegramState, chatId: string, tmdbId: string) {
   const details = await fetchTmdbSeasons(tmdbId);
   const existing = await librarySeasonNumbersForBot(settings, details.item);
+  pruneRequestSelections(state);
+  const selectionId = requestSelectionId();
   const keyboard = details.seasons.map((season) => [{
     text: existing.has(season.seasonNumber) ? `✅ 第${season.seasonNumber}季 · 库中存在` : `➕ 第${season.seasonNumber}季 · 申请`,
-    callback_data: existing.has(season.seasonNumber) ? `req:exists:${tmdbId}:${season.seasonNumber}` : `req:season:${tmdbId}:${season.seasonNumber}`
+    callback_data: existing.has(season.seasonNumber)
+      ? `req:exists:${selectionId}:${tmdbId}:${season.seasonNumber}`
+      : `req:season:${selectionId}:${tmdbId}:${season.seasonNumber}`
   }]);
   if (!keyboard.length) {
     await sendBotText(settings, `《${escapeHtml(details.item.title)}》暂无可选择的季度。`, chatId);
     return;
   }
-  await sendBotText(settings, `📺 <b>${escapeHtml(details.item.title)}</b>\n请选择季度：`, chatId, { inline_keyboard: keyboard });
+  const result = await sendBotPoster(
+    settings,
+    chatId,
+    `📺 <b>${escapeHtml(details.item.title)}</b>${details.item.year ? ` (${details.item.year})` : ""}\n请选择季度：`,
+    details.item.poster,
+    { inline_keyboard: keyboard }
+  );
+  const messageId = result.result?.message_id;
+  if (messageId) state.requestSelections[selectionId] = { chatId, messageIds: [messageId], createdAt: nowIso() };
 }
 
 async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState, message: Record<string, any>) {
@@ -1381,7 +1480,7 @@ async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState
   }
   if (["/request", "/wish"].includes(command)) {
     delete state.conversations[key];
-    if (argument) await sendRequestCandidates(settings, chatId, argument);
+    if (argument) await sendRequestCandidates(settings, state, chatId, argument);
     else {
       state.conversations[key] = { action: "request", at: nowIso() };
       await sendConversationPrompt(settings, chatId, chatType, user, "request");
@@ -1403,7 +1502,7 @@ async function handleTelegramMessage(settings: TgBotConfig, state: TelegramState
   if (!conversation) return;
   delete state.conversations[key];
   if (conversation.action === "search") await sendLibrarySearch(settings, chatId, text);
-  else await sendRequestCandidates(settings, chatId, text);
+  else await sendRequestCandidates(settings, state, chatId, text);
 }
 
 async function handleTelegramCallback(settings: TgBotConfig, state: TelegramState, callback: Record<string, any>) {
@@ -1459,23 +1558,32 @@ async function handleTelegramCallback(settings: TgBotConfig, state: TelegramStat
   }
   if (parts[0] !== "req") return;
   if (parts[1] === "exists") {
-    await answerCallback(settings, callbackId, `第 ${parts[3]} 季已在库中`, true);
+    const seasonNumber = parts.length >= 5 ? parts[4] : parts[3];
+    await answerCallback(settings, callbackId, `第 ${seasonNumber} 季已在库中`, true);
     return;
   }
   if (parts[1] === "item") {
-    const mediaType = parts[2] === "tv" ? "tv" : "movie";
-    const tmdbId = parts[3];
+    const modern = parts.length >= 5;
+    const selectionId = modern ? parts[2] : "";
+    const mediaType = (modern ? parts[3] : parts[2]) === "tv" ? "tv" : "movie";
+    const tmdbId = modern ? parts[4] : parts[3];
+    const callbackMessageId = Number(callback.message?.message_id || 0) || undefined;
     await answerCallback(settings, callbackId, mediaType === "tv" ? "正在读取季度" : "正在提交申请");
-    if (mediaType === "tv") await showTvSeasons(settings, chatId, tmdbId);
+    if (mediaType === "tv") await showTvSeasons(settings, state, chatId, tmdbId);
     else await submitTelegramRequest(settings, chatId, user, await fetchTmdbItem(tmdbId, "movie"));
+    await clearRequestSelection(settings, state, selectionId, chatId, callbackMessageId);
     return;
   }
   if (parts[1] === "season") {
-    const tmdbId = parts[2];
-    const seasonNumber = Number(parts[3]);
+    const modern = parts.length >= 5;
+    const selectionId = modern ? parts[2] : "";
+    const tmdbId = modern ? parts[3] : parts[2];
+    const seasonNumber = Number(modern ? parts[4] : parts[3]);
+    const callbackMessageId = Number(callback.message?.message_id || 0) || undefined;
     await answerCallback(settings, callbackId, "正在提交申请");
     const details = await fetchTmdbSeasons(tmdbId);
     await submitTelegramRequest(settings, chatId, user, details.item, seasonNumber);
+    await clearRequestSelection(settings, state, selectionId, chatId, callbackMessageId);
   }
 }
 

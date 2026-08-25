@@ -840,7 +840,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.16"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.17"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -1642,6 +1642,7 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [saveFeedback, setSaveFeedback] = useState("");
   const [copied, setCopied] = useState(false);
   const [latency, setLatency] = useState<LatencyStatus | null>(null);
 
@@ -1655,10 +1656,12 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
   }, [settings.data]);
 
   function updateWeb<Key extends keyof WebSettings>(key: Key, value: WebSettings[Key]) {
+    setSaveFeedback("");
     setDraft((current) => current ? { ...current, web: { ...current.web, [key]: value } } : current);
   }
 
   function updateBot<Key extends keyof TgBotConfig>(key: Key, value: TgBotConfig[Key]) {
+    setSaveFeedback("");
     setDraft((current) => current?.bot ? { ...current, bot: { ...current.bot, [key]: value } } : current);
   }
 
@@ -1668,11 +1671,15 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
     setBusy("save");
     setError("");
     setMessage("");
+    setSaveFeedback("");
     try {
       const saved = await api.saveAdminSettings(session, draft);
       setDraft({ ...saved, bot: saved.bot || draft.bot });
-      setMessage(saved.warning || "设置已保存并立即生效。");
+      setMessage(saved.warning || "");
+      setSaveFeedback(saved.warning ? "已保存，部分服务同步失败" : "已保存并重新载入");
       onSaved();
+      await settings.reload().catch(() => undefined);
+      window.setTimeout(() => setSaveFeedback(""), 2600);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -1901,8 +1908,14 @@ function AdminSettingsForm({ session, onSaved }: { session: UserSession; onSaved
       </div>
 
       <div className="settingsSaveBar">
-        <span>配置由 TFEmby Web 统一保存并立即生效</span>
-        <button className="primaryBtn settingsSave" disabled={Boolean(busy)}><Save size={17} />{busy === "save" ? "保存中" : "保存设置"}</button>
+        <div className="settingsSaveStatus" aria-live="polite">
+          <span>配置由 TFEmby Web 统一保存并立即生效</span>
+          {saveFeedback ? <strong><CheckCircle2 size={16} />{saveFeedback}</strong> : null}
+        </div>
+        <button className="primaryBtn settingsSave" disabled={Boolean(busy)}>
+          {saveFeedback ? <CheckCircle2 size={17} /> : <Save size={17} />}
+          {busy === "save" ? "保存中" : saveFeedback ? "已保存" : "保存设置"}
+        </button>
       </div>
     </form>
   );
