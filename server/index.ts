@@ -11,12 +11,14 @@ import {
   findPosterFallback,
   getFulfilledRequestIds,
   getLatestItems,
+  getLibraryMediaDetails,
   getLibrarySeasonNumbers,
   getPlayedHistory,
   getResumeItems,
   getStats,
   loginToEmby,
   searchLibrary,
+  setLibraryPlayedStatus,
   sessionFromHeaders
 } from "./emby.js";
 import { createMediaRequest, fulfillMediaRequests, listActiveMediaRequests, listMediaRequests, setMediaRequestTelegramMessages, updateMediaRequest } from "./requests.js";
@@ -283,6 +285,33 @@ app.get(
   asyncRoute(async (req, res) => {
     const query = String(req.query.q || "");
     res.json(await searchLibrary(requireSession(req), query));
+  })
+);
+
+app.get(
+  "/api/emby/items/:id",
+  asyncRoute(async (req, res) => {
+    res.json(await getLibraryMediaDetails(requireSession(req), scalar(req.params.id, "")));
+  })
+);
+
+app.patch(
+  "/api/emby/items/:id/played",
+  asyncRoute(async (req, res) => {
+    const played = req.body?.played;
+    if (typeof played !== "boolean") {
+      res.status(400).json({ error: "观看状态必须是布尔值。" });
+      return;
+    }
+    const requestedSeason = req.body?.seasonNumber;
+    const seasonNumber = requestedSeason === undefined || requestedSeason === null
+      ? undefined
+      : Number(requestedSeason);
+    if (seasonNumber !== undefined && (!Number.isInteger(seasonNumber) || seasonNumber < 0)) {
+      res.status(400).json({ error: "季度编号无效。" });
+      return;
+    }
+    res.json(await setLibraryPlayedStatus(requireSession(req), scalar(req.params.id, ""), played, seasonNumber));
   })
 );
 

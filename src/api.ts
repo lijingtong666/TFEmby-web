@@ -1,4 +1,4 @@
-import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, LibraryMediaDetails, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession } from "./types";
 
 const sessionKey = "tfemby-web-session";
 
@@ -84,6 +84,13 @@ export const api = {
     request<{ movies: number; series: number; played: number; resume: number; resumeProgressPercent: number; latest: number }>("/api/emby/stats", session),
   search: (session: EmbySession, query: string) =>
     request<MediaItem[]>(`/api/emby/search?q=${encodeURIComponent(query)}`, session),
+  libraryDetails: (session: EmbySession, itemId: string) =>
+    request<LibraryMediaDetails>(`/api/emby/items/${encodeURIComponent(itemId)}`, session),
+  setLibraryPlayed: (session: EmbySession, itemId: string, played: boolean, seasonNumber?: number) =>
+    request<LibraryMediaDetails>(`/api/emby/items/${encodeURIComponent(itemId)}/played`, session, {
+      method: "PATCH",
+      body: JSON.stringify({ played, seasonNumber })
+    }),
   resume: (session: EmbySession) => request<MediaItem[]>("/api/emby/resume", session),
   history: (session: EmbySession) => request<MediaItem[]>("/api/emby/history", session),
   latest: (session: EmbySession) => request<MediaItem[]>("/api/emby/latest", session),

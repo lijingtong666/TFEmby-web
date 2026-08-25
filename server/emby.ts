@@ -1,7 +1,7 @@
 import { cleanBaseUrl, config } from "./config.js";
 import { findDoubanPoster } from "./douban.js";
 import { fetchTmdbItem, fetchTmdbSeasonDetails, findTmdbPoster } from "./tmdb.js";
-import type { ChartItem, EmbySession, MediaItem, MediaRequest } from "./types.js";
+import type { ChartItem, EmbySession, LibraryMediaDetails, LibrarySeasonStatus, MediaItem, MediaRequest } from "./types.js";
 import type { IncomingHttpHeaders } from "node:http";
 
 type EmbyItem = {
@@ -23,6 +23,8 @@ type EmbyItem = {
   SeriesPrimaryImageTag?: string;
   ParentIndexNumber?: number;
   IndexNumber?: number;
+  ChildCount?: number;
+  RecursiveItemCount?: number;
   UserData?: {
     Played?: boolean;
     PlayCount?: number;
@@ -321,8 +323,142 @@ const fields = [
   "SeriesName",
   "SeriesPrimaryImageTag",
   "ParentIndexNumber",
-  "IndexNumber"
+  "IndexNumber",
+  "ChildCount",
+  "RecursiveItemCount"
 ].join(",");
+
+function requireItemId(itemId: string) {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(itemId)) {
+    const error = new Error("Emby 媒体 ID 无效。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+}
+
+async function getLibraryRawItem(session: EmbySession, itemId: string) {
+  requireItemId(itemId);
+  return embyFetch<EmbyItem>(session, `/Users/${session.userId}/Items/${encodeURIComponent(itemId)}?Fields=${encodeURIComponent(fields)}`);
+}
+
+async function getSeriesRows(session: EmbySession, seriesId: string) {
+  const seasonParams = new URLSearchParams({
+    UserId: session.userId,
+    ParentId: seriesId,
+    IncludeItemTypes: "Season",
+    Fields: fields,
+    SortBy: "IndexNumber",
+    SortOrder: "Ascending",
+    Limit: "100"
+  });
+  const episodeParams = new URLSearchParams({
+    UserId: session.userId,
+    ParentId: seriesId,
+    Recursive: "true",
+    IncludeItemTypes: "Episode",
+    Fields: fields,
+    SortBy: "ParentIndexNumber,IndexNumber",
+    SortOrder: "Ascending",
+    Limit: "10000"
+  });
+  const [seasonData, episodeData] = await Promise.all([
+    embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${seasonParams.toString()}`),
+    embyFetch<EmbyItemsResponse>(session, `/Users/${session.userId}/Items?${episodeParams.toString()}`)
+  ]);
+  return { seasons: seasonData.Items || [], episodes: episodeData.Items || [] };
+}
+
+export async function getLibraryMediaDetails(session: EmbySession, itemId: string): Promise<LibraryMediaDetails> {
+  const rawItem = await getLibraryRawItem(session, itemId);
+  if (rawItem.Type !== "Movie" && rawItem.Type !== "Series") {
+    const error = new Error("仅支持查看电影或剧集详情。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+  const item = (await enrichMediaPosters(session, [rawItem]))[0] || toMediaItem(session, rawItem);
+  if (rawItem.Type === "Movie") {
+    return { item, seasons: [], totalSeasons: 0, totalEpisodes: 0, playedEpisodes: item.userData?.played ? 1 : 0 };
+  }
+
+  const rows = await getSeriesRows(session, rawItem.Id);
+  const episodesBySeason = new Map<number, EmbyItem[]>();
+  for (const episode of rows.episodes) {
+    const seasonNumber = Number(episode.ParentIndexNumber);
+    if (!Number.isInteger(seasonNumber) || seasonNumber < 0) continue;
+    episodesBySeason.set(seasonNumber, [...(episodesBySeason.get(seasonNumber) || []), episode]);
+  }
+  const seasonsByNumber = new Map<number, EmbyItem>();
+  for (const season of rows.seasons) {
+    const seasonNumber = Number(season.IndexNumber);
+    if (Number.isInteger(seasonNumber) && seasonNumber >= 0) seasonsByNumber.set(seasonNumber, season);
+  }
+  const seasonNumbers = new Set([...seasonsByNumber.keys(), ...episodesBySeason.keys()]);
+  const seasons: LibrarySeasonStatus[] = [...seasonNumbers]
+    .sort((left, right) => left - right)
+    .map((seasonNumber) => {
+      const season = seasonsByNumber.get(seasonNumber);
+      const episodes = episodesBySeason.get(seasonNumber) || [];
+      const episodeCount = episodes.length || season?.RecursiveItemCount || season?.ChildCount || 0;
+      const playedEpisodeCount = episodes.filter((episode) => episode.UserData?.Played).length;
+      return {
+        id: season?.Id,
+        name: season?.Name || (seasonNumber === 0 ? "特别篇" : `第 ${seasonNumber} 季`),
+        seasonNumber,
+        episodeCount,
+        playedEpisodeCount: episodes.length ? playedEpisodeCount : season?.UserData?.Played ? episodeCount : 0,
+        played: episodes.length ? episodeCount > 0 && playedEpisodeCount >= episodeCount : Boolean(season?.UserData?.Played),
+        poster: season ? imageUrl(season, "Primary") || item.poster : item.poster
+      };
+    });
+  const regularSeasons = seasons.filter((season) => season.seasonNumber > 0);
+  return {
+    item,
+    seasons,
+    totalSeasons: regularSeasons.length || seasons.length,
+    totalEpisodes: seasons.reduce((total, season) => total + season.episodeCount, 0),
+    playedEpisodes: seasons.reduce((total, season) => total + season.playedEpisodeCount, 0)
+  };
+}
+
+async function setPlayedItem(session: EmbySession, itemId: string, played: boolean) {
+  requireItemId(itemId);
+  await embyFetch<Record<string, unknown>>(session, `/Users/${session.userId}/PlayedItems/${encodeURIComponent(itemId)}`, {
+    method: played ? "POST" : "DELETE"
+  });
+}
+
+export async function setLibraryPlayedStatus(session: EmbySession, itemId: string, played: boolean, seasonNumber?: number) {
+  const rawItem = await getLibraryRawItem(session, itemId);
+  if (rawItem.Type === "Movie") {
+    await setPlayedItem(session, rawItem.Id, played);
+    return getLibraryMediaDetails(session, rawItem.Id);
+  }
+  if (rawItem.Type !== "Series") {
+    const error = new Error("仅支持修改电影或剧集的观看状态。");
+    (error as Error & { status?: number }).status = 400;
+    throw error;
+  }
+
+  const rows = await getSeriesRows(session, rawItem.Id);
+  const episodeIds = rows.episodes
+    .filter((episode) => seasonNumber === undefined || Number(episode.ParentIndexNumber) === seasonNumber)
+    .map((episode) => episode.Id);
+  let targetIds = episodeIds;
+  if (!targetIds.length && seasonNumber !== undefined) {
+    const season = rows.seasons.find((candidate) => Number(candidate.IndexNumber) === seasonNumber);
+    if (!season) {
+      const error = new Error("库中未找到该季。");
+      (error as Error & { status?: number }).status = 404;
+      throw error;
+    }
+    targetIds = [season.Id];
+  }
+  if (!targetIds.length) targetIds = [rawItem.Id];
+  for (let index = 0; index < targetIds.length; index += 8) {
+    await Promise.all(targetIds.slice(index, index + 8).map((targetId) => setPlayedItem(session, targetId, played)));
+  }
+  return getLibraryMediaDetails(session, rawItem.Id);
+}
 
 export async function searchLibrary(session: EmbySession, query: string, limit = 48) {
   const searchTerm = query.trim();

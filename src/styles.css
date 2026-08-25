@@ -1544,6 +1544,29 @@ h2 {
   box-shadow: 0 12px 25px rgba(27, 37, 55, 0.08);
 }
 
+.rowInteractive {
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.rowInteractive:hover {
+  transform: translateY(-2px);
+}
+
+.rowInteractive:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 25%, transparent);
+  outline-offset: 3px;
+}
+
+.rowOpenHint {
+  width: 34px;
+  flex: 0 0 34px;
+  align-self: center;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+
 .progress {
   height: 6px;
   background: color-mix(in srgb, var(--brand) 10%, var(--surface-soft));
@@ -3489,6 +3512,109 @@ h2 {
   border-top: 1px solid var(--line);
 }
 
+.libraryDetailVisual {
+  min-height: 330px;
+}
+
+.libraryWatchSummary {
+  margin-top: 2px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--surface-soft);
+}
+
+.libraryWatchSummary > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.libraryWatchSummary span,
+.librarySeasonInfo span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.libraryWatchToggle {
+  min-width: 112px;
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.libraryWatchToggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--brand) 34%, var(--line));
+  color: var(--brand-strong);
+}
+
+.libraryWatchToggle.active {
+  border-color: color-mix(in srgb, var(--green) 32%, var(--line));
+  background: color-mix(in srgb, var(--green) 11%, var(--surface));
+  color: var(--green);
+}
+
+.libraryWatchToggle:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.librarySeasonSection {
+  padding-top: 26px;
+}
+
+.librarySeasonList {
+  margin-top: 14px;
+  display: grid;
+  gap: 9px;
+}
+
+.librarySeasonRow {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  background: var(--surface-soft);
+}
+
+.librarySeasonIndex {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--brand) 11%, var(--surface));
+  color: var(--brand-strong);
+  font-size: 14px;
+  font-weight: 820;
+}
+
+.librarySeasonInfo {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.librarySeasonInfo strong {
+  overflow-wrap: anywhere;
+}
+
 .detailIds,
 .detailLinks {
   display: flex;
@@ -3794,6 +3920,29 @@ h2 {
   .detailFooter {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .libraryWatchSummary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .libraryWatchSummary .libraryWatchToggle {
+    width: 100%;
+  }
+
+  .librarySeasonRow {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .librarySeasonIndex {
+    width: 46px;
+    height: 46px;
+  }
+
+  .librarySeasonRow .libraryWatchToggle {
+    width: 100%;
+    grid-column: 1 / -1;
   }
 }
 

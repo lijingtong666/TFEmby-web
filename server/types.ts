@@ -39,6 +39,24 @@ export type MediaItem = {
   };
 };
 
+export type LibrarySeasonStatus = {
+  id?: string;
+  name: string;
+  seasonNumber: number;
+  episodeCount: number;
+  playedEpisodeCount: number;
+  played: boolean;
+  poster?: string;
+};
+
+export type LibraryMediaDetails = {
+  item: MediaItem;
+  seasons: LibrarySeasonStatus[];
+  totalSeasons: number;
+  totalEpisodes: number;
+  playedEpisodes: number;
+};
+
 export type TvSeason = {
   seasonNumber: number;
   name: string;

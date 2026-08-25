@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { api, loadSession, saveSession } from "./api";
-import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession, WebSettings } from "./types";
+import type { AdminSettings, AppConfig, ChartItem, ChartPage, EmbySession, LatencyStatus, LibraryMediaDetails, MediaItem, MediaRequest, RequestStatus, TelegramIntegration, TgBotConfig, TmdbTitleDetails, TvSeason, TvSeasonDetail, UserSession, WebSettings } from "./types";
 
 type View = "overview" | "charts" | "discover" | "search" | "resume" | "latest" | "requests" | "admin";
 
@@ -509,7 +509,7 @@ function ChartDetail({ item, session, onClose }: { item: ChartItem | null; sessi
   );
 }
 
-function MediaRow({ item }: { item: MediaItem }) {
+function MediaRow({ item, onOpen }: { item: MediaItem; onOpen?: () => void }) {
   const episodeTitle = item.title.trim();
   const genericEpisodeTitle = /^第\s*\d+\s*集$|^episode\s*\d+$|^s\d+e\d+$/i.test(episodeTitle);
   const episodePosition = [
@@ -522,7 +522,19 @@ function MediaRow({ item }: { item: MediaItem }) {
     : item.type === "series" ? "剧集" : "电影";
 
   return (
-    <article className="rowItem">
+    <article
+      className={`rowItem ${onOpen ? "rowInteractive" : ""}`}
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      aria-label={onOpen ? `查看《${displayTitle}》详情` : undefined}
+      onClick={onOpen}
+      onKeyDown={onOpen ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      } : undefined}
+    >
       <Poster item={item} compact />
       <div className="rowBody">
         <div className="rowTop">
@@ -540,7 +552,151 @@ function MediaRow({ item }: { item: MediaItem }) {
           </div>
         ) : null}
       </div>
+      {onOpen ? <span className="rowOpenHint"><ChevronRight size={19} /></span> : null}
     </article>
+  );
+}
+
+function LibraryMediaDetail({ item, session, onClose, onUpdated }: {
+  item: MediaItem | null;
+  session: EmbySession | null;
+  onClose: () => void;
+  onUpdated: (item: MediaItem) => void;
+}) {
+  const [details, setDetails] = useState<LibraryMediaDetails | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [updating, setUpdating] = useState("");
+
+  useEffect(() => {
+    setDetails(null);
+    setError("");
+    if (!item || !session) return;
+    let alive = true;
+    setLoading(true);
+    api.libraryDetails(session, item.id)
+      .then((value) => alive && setDetails(value))
+      .catch((err: Error) => alive && setError(err.message))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [item?.id, session?.accessToken]);
+
+  useEffect(() => {
+    if (!item) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [item, onClose]);
+
+  if (!item) return null;
+  const itemId = item.id;
+  const resolvedItem = details?.item || item;
+  const seasons = details?.seasons || [];
+  const allPlayed = resolvedItem.type === "movie"
+    ? Boolean(resolvedItem.userData?.played)
+    : seasons.length > 0 && seasons.every((season) => season.played);
+
+  async function togglePlayed(played: boolean, seasonNumber?: number) {
+    if (!session) return;
+    const key = seasonNumber === undefined ? "all" : String(seasonNumber);
+    setUpdating(key);
+    setError("");
+    try {
+      const next = await api.setLibraryPlayed(session, itemId, played, seasonNumber);
+      setDetails(next);
+      onUpdated(next.item);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUpdating("");
+    }
+  }
+
+  return (
+    <div className="detailOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="detailModal libraryDetailModal" role="dialog" aria-modal="true" aria-label={`${resolvedItem.title}详情`}>
+        <button className="detailClose" onClick={onClose} title="关闭详情" aria-label="关闭详情"><X size={21} /></button>
+        <div className="detailVisual libraryDetailVisual">
+          <div className="detailBackdrop detailBackdropFallback" />
+          <div className="detailShade" />
+          <div className="detailHeading">
+            <div className="detailPoster"><Poster item={resolvedItem} /></div>
+            <div className="detailTitleBlock">
+              <div className="detailBadges">
+                <span>{resolvedItem.type === "series" ? "剧集" : "电影"}</span>
+                <span>Emby 片库</span>
+                {allPlayed ? <span className="inLibraryBadge"><CheckCircle2 size={13} />已观看</span> : null}
+              </div>
+              <h1>{resolvedItem.title}</h1>
+              {resolvedItem.originalTitle && resolvedItem.originalTitle !== resolvedItem.title ? <p>{resolvedItem.originalTitle}</p> : null}
+            </div>
+          </div>
+        </div>
+        <div className="detailContent">
+          {loading ? <div className="detailLoading">正在读取 Emby 季度与观看状态。</div> : null}
+          {error ? <div className="notice">{error}</div> : null}
+          <div className="detailFacts">
+            <div><span>媒体类型</span><strong>{resolvedItem.type === "series" ? "剧集" : "电影"}</strong></div>
+            <div><span>年份</span><strong>{resolvedItem.year || "未知"}</strong></div>
+            {resolvedItem.communityRating ? <div><span>Emby 评分</span><strong><Star size={16} fill="currentColor" />{resolvedItem.communityRating.toFixed(1)}</strong></div> : null}
+            {resolvedItem.type === "series" ? <div><span>总季数</span><strong>{details ? `${details.totalSeasons} 季` : "读取中"}</strong></div> : null}
+            {resolvedItem.type === "series" ? <div><span>总集数</span><strong>{details ? `${details.totalEpisodes} 集` : "读取中"}</strong></div> : null}
+            {resolvedItem.type === "series" ? <div><span>已观看</span><strong>{details ? `${details.playedEpisodes}/${details.totalEpisodes} 集` : "读取中"}</strong></div> : null}
+          </div>
+          {resolvedItem.overview ? <div className="detailOverview"><h2>简介</h2><p>{resolvedItem.overview}</p></div> : null}
+          <div className="libraryWatchSummary">
+            <div>
+              <strong>{resolvedItem.type === "series" ? "整部剧观看状态" : "观看状态"}</strong>
+              <span>{allPlayed ? "已标记为已观看" : "当前为未全部观看"}</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={allPlayed}
+              className={`libraryWatchToggle ${allPlayed ? "active" : ""}`}
+              disabled={!details || Boolean(updating)}
+              onClick={() => togglePlayed(!allPlayed)}
+            >
+              {allPlayed ? <Eye size={17} /> : <EyeOff size={17} />}
+              {updating === "all" ? "更新中" : allPlayed ? "已观看" : "未观看"}
+            </button>
+          </div>
+          {resolvedItem.type === "series" ? (
+            <div className="librarySeasonSection">
+              <div className="detailSectionTitle"><h2>季度观看状态</h2><span>{details ? `共 ${details.totalSeasons} 季` : "正在读取"}</span></div>
+              {!loading && details && !seasons.length ? <div className="notice">Emby 中暂无季度数据。</div> : null}
+              <div className="librarySeasonList">
+                {seasons.map((season) => (
+                  <article className="librarySeasonRow" key={season.seasonNumber}>
+                    <div className="librarySeasonIndex">{season.seasonNumber === 0 ? "SP" : `S${String(season.seasonNumber).padStart(2, "0")}`}</div>
+                    <div className="librarySeasonInfo">
+                      <strong>{season.name}</strong>
+                      <span>{season.episodeCount ? `已看 ${season.playedEpisodeCount}/${season.episodeCount} 集` : "集数未知"}</span>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={season.played}
+                      className={`libraryWatchToggle ${season.played ? "active" : ""}`}
+                      disabled={Boolean(updating)}
+                      onClick={() => togglePlayed(!season.played, season.seasonNumber)}
+                    >
+                      {season.played ? <Eye size={17} /> : <EyeOff size={17} />}
+                      {updating === String(season.seasonNumber) ? "更新中" : season.played ? "已观看" : "未观看"}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -682,7 +838,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.13"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.14"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -972,6 +1128,7 @@ function SearchView({ session }: { session: EmbySession | null }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [selected, setSelected] = useState<MediaItem | null>(null);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1006,7 +1163,16 @@ function SearchView({ session }: { session: EmbySession | null }) {
       {error ? <div className="notice">{error}</div> : null}
       {!session ? <div className="notice">请先登录 Emby。</div> : null}
       {session && searched && !results.length && !error ? <div className="notice">片库中没有找到“{query.trim()}”。</div> : null}
-      <div className="rows">{results.map((item) => <MediaRow key={item.id} item={item} />)}</div>
+      <div className="rows">{results.map((item) => <MediaRow key={item.id} item={item} onOpen={() => setSelected(item)} />)}</div>
+      <LibraryMediaDetail
+        item={selected}
+        session={session}
+        onClose={() => setSelected(null)}
+        onUpdated={(updated) => {
+          setSelected(updated);
+          setResults((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+        }}
+      />
     </section>
   );
 }

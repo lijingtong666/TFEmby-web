@@ -38,7 +38,7 @@ export function cleanBaseUrl(value: string) {
 
 const defaultTmdbApiBases = "https://api.themoviedb.org";
 const defaultTmdbImageBases = "https://image.tmdb.org";
-const fallbackVersion = "0.6.13";
+const fallbackVersion = "0.6.14";
 
 function packageVersion() {
   try {
