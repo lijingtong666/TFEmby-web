@@ -21,7 +21,7 @@ import {
 } from "./emby.js";
 import { createMediaRequest, fulfillMediaRequests, listActiveMediaRequests, listMediaRequests, setMediaRequestTelegramMessages, updateMediaRequest } from "./requests.js";
 import { enrichChartPosters } from "./posters.js";
-import { discoverTmdb, fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasonDetails, fetchTmdbSeasons, searchTmdb } from "./tmdb.js";
+import { discoverTmdb, fetchTmdbChart, fetchTmdbImage, fetchTmdbItem, fetchTmdbSeasonDetails, fetchTmdbSeasons, hasMinimumVisibleScore, minimumVisibleScore, searchTmdb } from "./tmdb.js";
 import {
   controlTgBot,
   getTgBotConfig,
@@ -356,7 +356,7 @@ app.get(
     const requestedGenre = Number(req.query.genre);
     const genre = Number.isInteger(requestedGenre) && requestedGenre > 0 ? requestedGenre : undefined;
     const requestedScore = Number(req.query.minScore);
-    const minScore = Number.isFinite(requestedScore) && requestedScore >= 0 && requestedScore <= 10 ? requestedScore : undefined;
+    const minScore = Number.isFinite(requestedScore) && requestedScore <= 10 ? Math.max(minimumVisibleScore, requestedScore) : minimumVisibleScore;
     const requestedLanguage = scalar(req.query.language, "").toLowerCase();
     const language = /^[a-z]{2}$/.test(requestedLanguage) ? requestedLanguage : undefined;
     const requestedSort = scalar(req.query.sort, "popular-desc");
@@ -364,7 +364,7 @@ app.get(
     const sort = sortOptions.find((value) => value === requestedSort) || "popular-desc";
     const session = sessionFromAuthHeader(req.headers.authorization)?.emby || sessionFromHeaders(req.headers);
     const result = await discoverTmdb(mediaType, { page, year, genre, minScore, language, sort });
-    const items = await annotateChartItems(session, await enrichChartPosters(result.items));
+    const items = await annotateChartItems(session, await enrichChartPosters(result.items.filter(hasMinimumVisibleScore)));
     res.json({ ...result, items });
   })
 );
@@ -386,7 +386,7 @@ app.get(
     const result = source === "douban"
       ? await fetchDoubanChart(chart, media, period, page, year, genre)
       : await fetchTmdbChart(chart, media, period, { page, year, genre });
-    const items = await annotateChartItems(session, await enrichChartPosters(result.items));
+    const items = await annotateChartItems(session, await enrichChartPosters(result.items.filter(hasMinimumVisibleScore)));
     res.json({ ...result, items });
   })
 );

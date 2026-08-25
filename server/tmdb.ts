@@ -60,6 +60,20 @@ const imageCache = new Map<string, CachedImage>();
 const imageLoads = new Map<string, Promise<CachedImage>>();
 const imageCacheMaxBytes = 64 * 1024 * 1024;
 let imageCacheBytes = 0;
+export const minimumVisibleScore = 5;
+
+export function hasMinimumVisibleScore(item: Pick<ChartItem, "voteAverage">) {
+  return typeof item.voteAverage === "number" && Number.isFinite(item.voteAverage) && item.voteAverage >= minimumVisibleScore;
+}
+
+function hasMinimumTmdbScore(item: Pick<TmdbMedia, "vote_average">) {
+  return typeof item.vote_average === "number" && Number.isFinite(item.vote_average) && item.vote_average >= minimumVisibleScore;
+}
+
+function filterChartPage(page: ChartPage): ChartPage {
+  const items = page.items.filter(hasMinimumVisibleScore);
+  return { ...page, items, totalResults: page.totalPages === 1 ? items.length : page.totalResults };
+}
 
 const image = (imagePath?: string, size = "w500") => imagePath
   ? `/api/tmdb/image?path=${encodeURIComponent(imagePath)}&size=${encodeURIComponent(size)}`
@@ -150,6 +164,7 @@ export async function searchTmdb(query: string): Promise<ChartItem[]> {
   const data = (await response.json()) as TmdbResponse;
   return (data.results || [])
     .filter((item) => item.media_type === "movie" || item.media_type === "tv")
+    .filter(hasMinimumTmdbScore)
     .slice(0, 24)
     .map((item, index) => toChartItem(item, "search", index + 1));
 }
@@ -312,6 +327,7 @@ async function fetchDiscoverPage(mediaType: "movie" | "tv", chart: string, filte
     endpoint.searchParams.set("page", String(filters.page));
     endpoint.searchParams.set("sort_by", chartSort(chart));
     endpoint.searchParams.set("include_adult", "false");
+    endpoint.searchParams.set("vote_average.gte", String(minimumVisibleScore));
     if (chart.includes("top-rated")) endpoint.searchParams.set("vote_count.gte", "200");
     if (filters.genre) endpoint.searchParams.set("with_genres", String(filters.genre));
     if (filters.year) {
@@ -322,7 +338,7 @@ async function fetchDiscoverPage(mediaType: "movie" | "tv", chart: string, filte
   });
   if (!response.ok) throw new Error(`TMDB 榜单读取失败：HTTP ${response.status}`);
   const data = (await response.json()) as TmdbResponse;
-  const results = (data.results || []).map((item) => ({ ...item, media_type: mediaType }));
+  const results = (data.results || []).filter(hasMinimumTmdbScore).map((item) => ({ ...item, media_type: mediaType }));
   return { data, results };
 }
 
@@ -336,9 +352,10 @@ function discoverSort(mediaType: "movie" | "tv", sort: DiscoverFilters["sort"]) 
 
 export async function discoverTmdb(mediaType: "movie" | "tv", filters: DiscoverFilters = {}): Promise<ChartPage> {
   const page = Math.min(5, Math.max(1, filters.page || 1));
+  const minScore = Math.max(minimumVisibleScore, filters.minScore || minimumVisibleScore);
   if (!config.tmdbApiKey && !config.tmdbBearerToken) {
     const demo = fallback("discover", page, mediaType, filters.year, filters.genre);
-    const items = filters.minScore ? demo.items.filter((item) => (item.voteAverage || 0) >= filters.minScore!) : demo.items;
+    const items = demo.items.filter((item) => hasMinimumVisibleScore(item) && item.voteAverage! >= minScore);
     return { ...demo, items, totalResults: items.length };
   }
 
@@ -350,13 +367,14 @@ export async function discoverTmdb(mediaType: "movie" | "tv", filters: DiscoverF
       if (mediaType === "tv") endpoint.searchParams.set("include_null_first_air_dates", "false");
       if (filters.genre) endpoint.searchParams.set("with_genres", String(filters.genre));
       if (filters.language) endpoint.searchParams.set("with_original_language", filters.language);
-      if (filters.minScore) endpoint.searchParams.set("vote_average.gte", String(filters.minScore));
-      if (filters.minScore || filters.sort === "score-desc") endpoint.searchParams.set("vote_count.gte", "50");
+      endpoint.searchParams.set("vote_average.gte", String(minScore));
+      endpoint.searchParams.set("vote_count.gte", "50");
       if (filters.year) endpoint.searchParams.set(mediaType === "tv" ? "first_air_date_year" : "primary_release_year", String(filters.year));
     });
-    if (!response.ok) return fallback("discover", page, mediaType, filters.year, filters.genre);
+    if (!response.ok) return filterChartPage(fallback("discover", page, mediaType, filters.year, filters.genre));
     const data = (await response.json()) as TmdbResponse;
     const items = (data.results || [])
+      .filter(hasMinimumTmdbScore)
       .slice(0, 20)
       .map((item, index) => toChartItem({ ...item, media_type: mediaType }, "discover", (page - 1) * 20 + index + 1));
     return {
@@ -366,13 +384,13 @@ export async function discoverTmdb(mediaType: "movie" | "tv", filters: DiscoverF
       totalResults: data.total_results || items.length
     };
   } catch {
-    return fallback("discover", page, mediaType, filters.year, filters.genre);
+    return filterChartPage(fallback("discover", page, mediaType, filters.year, filters.genre));
   }
 }
 
 export async function fetchTmdbChart(chart: string, media = "all", period = "week", filters: ChartFilters = {}): Promise<ChartPage> {
   const page = Math.min(5, Math.max(1, filters.page || 1));
-  if (!config.tmdbApiKey && !config.tmdbBearerToken) return fallback(chart, page, media, filters.year, filters.genre);
+  if (!config.tmdbApiKey && !config.tmdbBearerToken) return filterChartPage(fallback(chart, page, media, filters.year, filters.genre));
 
   const normalizedFilters = { ...filters, page };
   if (filters.year || filters.genre) {
@@ -394,7 +412,7 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
         totalResults
       };
     } catch {
-      return fallback(chart, page, media, filters.year, filters.genre);
+      return filterChartPage(fallback(chart, page, media, filters.year, filters.genre));
     }
   }
 
@@ -425,9 +443,9 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
       else endpoint.searchParams.set("primary_release_date.gte", lastMonth());
     }
   });
-  if (!response.ok) return fallback(chart, page, media);
+  if (!response.ok) return filterChartPage(fallback(chart, page, media));
   const data = (await response.json()) as TmdbResponse;
-  const items = (data.results || []).slice(0, 20).map((item, index) => toChartItem(item, chart, (page - 1) * 20 + index + 1));
+  const items = (data.results || []).filter(hasMinimumTmdbScore).slice(0, 20).map((item, index) => toChartItem(item, chart, (page - 1) * 20 + index + 1));
   return {
     items,
     page,

@@ -60,6 +60,9 @@ const requestStatus: Record<RequestStatus, string> = {
   rejected: "已拒绝"
 };
 
+const minimumVisibleScore = 5;
+const visibleChartItems = (items: ChartItem[]) => items.filter((item) => typeof item.voteAverage === "number" && item.voteAverage >= minimumVisibleScore);
+
 type ChartSection = {
   id: string;
   label: string;
@@ -311,6 +314,7 @@ function ChartShelf({ section, session, onMore, onOpen }: { section: ChartSectio
     [section.source, section.chart, section.media, section.period, section.genre, session?.accessToken],
     emptyChartPage
   );
+  const items = visibleChartItems(data.items);
 
   return (
     <section className="chartShelf">
@@ -323,9 +327,9 @@ function ChartShelf({ section, session, onMore, onOpen }: { section: ChartSectio
         <div className="shelfTrack shelfLoading" aria-label={`${section.label}加载中`}>
           {Array.from({ length: 10 }, (_, index) => <div className="shelfSkeleton" key={index} />)}
         </div>
-      ) : data.items.length ? (
+      ) : items.length ? (
         <div className="shelfTrack">
-          {data.items.map((item) => (
+          {items.map((item) => (
             <ShelfCard key={`${item.source}-${item.externalIds.tmdb || item.externalIds.douban || item.rank}-${item.title}`} item={item} onOpen={() => onOpen(item)} />
           ))}
         </div>
@@ -678,7 +682,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.12"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.13"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -726,6 +730,7 @@ function FocusedChartView({ selected, session, onBack, onOpen }: { selected: Cha
     [selected.source, selected.chart, selected.media, selected.period, page, year, genre, session?.accessToken],
     emptyChartPage
   );
+  const items = visibleChartItems(data.items);
   const pages = pageNumbers(data.page, data.totalPages);
 
   return (
@@ -758,7 +763,7 @@ function FocusedChartView({ selected, session, onBack, onOpen }: { selected: Cha
         </div>
       </div>
       {error ? <div className="notice">{error}</div> : null}
-      {loading ? <div className="loadingGrid" /> : data.items.length ? <div className="grid chartGrid">{data.items.map((item) => <ChartCard key={`${item.source}-${item.rank}-${item.title}`} item={item} onOpen={() => onOpen(item)} />)}</div> : <div className="notice">当前筛选条件下暂无榜单内容。</div>}
+      {loading ? <div className="loadingGrid" /> : items.length ? <div className="grid chartGrid">{items.map((item) => <ChartCard key={`${item.source}-${item.rank}-${item.title}`} item={item} onOpen={() => onOpen(item)} />)}</div> : <div className="notice">当前筛选条件下暂无 5.0 分以上的榜单内容。</div>}
       {data.totalPages > 1 ? (
         <nav className="pagination" aria-label="热榜分页">
           <button type="button" className="pageArrow" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} title="上一页" aria-label="上一页"><ChevronLeft size={19} /></button>
@@ -825,7 +830,7 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
   const [genre, setGenre] = useState("");
   const [language, setLanguage] = useState("");
   const [year, setYear] = useState("");
-  const [minScore, setMinScore] = useState(0);
+  const [minScore, setMinScore] = useState(minimumVisibleScore);
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<ChartItem | null>(null);
   const genreOptions = media === "tv" ? tvGenres : movieGenres;
@@ -835,6 +840,7 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
     [media, page, year, genre, language, minScore, sort, session?.accessToken],
     emptyChartPage
   );
+  const items = visibleChartItems(data.items);
   const pages = pageNumbers(data.page, data.totalPages);
 
   function resetFilters() {
@@ -842,7 +848,7 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
     setGenre("");
     setLanguage("");
     setYear("");
-    setMinScore(0);
+    setMinScore(minimumVisibleScore);
     setPage(1);
   }
 
@@ -894,8 +900,8 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
           </label>
           <label className="scoreRange">
             <span>最低评分</span>
-            <input type="range" min="0" max="9" step="0.5" value={minScore} onChange={(event) => { setMinScore(Number(event.target.value)); setPage(1); }} />
-            <strong>{minScore ? `${minScore.toFixed(1)}+` : "不限"}</strong>
+            <input type="range" min="5" max="9" step="0.5" value={minScore} onChange={(event) => { setMinScore(Math.max(minimumVisibleScore, Number(event.target.value))); setPage(1); }} />
+            <strong>{minScore.toFixed(1)}+</strong>
           </label>
         </div>
       </div>
@@ -905,11 +911,11 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
         <div><strong>{data.totalResults.toLocaleString("zh-CN")}</strong><span>条结果 · 第 {data.page}/{data.totalPages} 页</span></div>
       </div>
       {error ? <div className="notice">{error}</div> : null}
-      {loading ? <div className="loadingGrid" /> : data.items.length ? (
+      {loading ? <div className="loadingGrid" /> : items.length ? (
         <div className="grid discoverGrid">
-          {data.items.map((item) => <ChartCard showRank={false} key={`${item.externalIds.tmdb || item.rank}-${item.title}`} item={item} onOpen={() => setDetail(item)} />)}
+          {items.map((item) => <ChartCard showRank={false} key={`${item.externalIds.tmdb || item.rank}-${item.title}`} item={item} onOpen={() => setDetail(item)} />)}
         </div>
-      ) : <div className="notice">当前筛选条件下暂无内容。</div>}
+      ) : <div className="notice">当前筛选条件下暂无 5.0 分以上的内容。</div>}
       {data.totalPages > 1 ? (
         <nav className="pagination" aria-label="探索分页">
           <button type="button" className="pageArrow" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} title="上一页" aria-label="上一页"><ChevronLeft size={19} /></button>
@@ -1217,7 +1223,7 @@ function RequestView({ session }: { session: UserSession | null }) {
     setError("");
     setMessage("");
     try {
-      setResults(await api.searchTmdb(session, query.trim()));
+      setResults(visibleChartItems(await api.searchTmdb(session, query.trim())));
     } catch (err) {
       setError((err as Error).message);
     } finally {
