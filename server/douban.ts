@@ -1,6 +1,12 @@
 import { config } from "./config.js";
 import type { ChartItem, ChartPage } from "./types.js";
 
+const maximumResultCount = 1000;
+
+function capTotalResults(value: number | undefined, fallback = 0) {
+  return Math.min(maximumResultCount, Math.max(0, value || fallback));
+}
+
 type DoubanSearchItem = {
   id?: string | number;
   title?: string;
@@ -220,7 +226,7 @@ export async function fetchDoubanChart(chart: string, media = "all", period = "w
       items,
       page: currentPage,
       totalPages: Math.min(5, Math.max(1, data.totalPages || data.total_pages || 1)),
-      totalResults: data.totalResults || data.total_results || items.length
+      totalResults: capTotalResults(data.totalResults || data.total_results, items.length)
     };
   } catch {
     return fallback(chart, media, currentPage, year);

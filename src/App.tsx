@@ -160,6 +160,8 @@ const discoverLanguages = [
 ] as const;
 
 const emptyChartPage: ChartPage = { items: [], page: 1, totalPages: 1, totalResults: 0 };
+const maximumResultCount = 1000;
+const displayResultCount = (value: number) => Math.min(maximumResultCount, Math.max(0, value));
 
 function pageNumbers(current: number, total: number) {
   const values = new Set([1, total, current - 1, current, current + 1]);
@@ -838,7 +840,7 @@ function Sidebar({
         </nav>
         <div className="sidebarBottom">
           <LoginPanel config={config} session={session} onLogin={onLogin} onLogout={onLogout} />
-          <div className="buildTag">TFEmby Web v{config?.version || "0.6.14"}</div>
+          <div className="buildTag">TFEmby Web v{config?.version || "0.6.15"}</div>
         </div>
       </aside>
       <button className={`scrim ${open ? "show" : ""}`} aria-label="关闭导航" onClick={() => setOpen(false)} />
@@ -914,7 +916,7 @@ function FocusedChartView({ selected, session, onBack, onOpen }: { selected: Cha
           </select>
         </label>
         <div className="chartCount">
-          <strong>{data.totalResults.toLocaleString("zh-CN")}</strong>
+          <strong>{displayResultCount(data.totalResults).toLocaleString("zh-CN")}</strong>
           <span>条结果 · 第 {data.page}/{data.totalPages} 页</span>
         </div>
       </div>
@@ -1064,7 +1066,7 @@ function DiscoverView({ session }: { session: EmbySession | null }) {
 
       <div className="discoverResultHead">
         <div><h2>{media === "movie" ? "电影" : "电视剧"}</h2></div>
-        <div><strong>{data.totalResults.toLocaleString("zh-CN")}</strong><span>条结果 · 第 {data.page}/{data.totalPages} 页</span></div>
+        <div><strong>{displayResultCount(data.totalResults).toLocaleString("zh-CN")}</strong><span>条结果 · 第 {data.page}/{data.totalPages} 页</span></div>
       </div>
       {error ? <div className="notice">{error}</div> : null}
       {loading ? <div className="loadingGrid" /> : items.length ? (

@@ -61,6 +61,11 @@ const imageLoads = new Map<string, Promise<CachedImage>>();
 const imageCacheMaxBytes = 64 * 1024 * 1024;
 let imageCacheBytes = 0;
 export const minimumVisibleScore = 5;
+const maximumResultCount = 1000;
+
+function capTotalResults(value: number | undefined, fallback = 0) {
+  return Math.min(maximumResultCount, Math.max(0, value || fallback));
+}
 
 export function hasMinimumVisibleScore(item: Pick<ChartItem, "voteAverage">) {
   return typeof item.voteAverage === "number" && Number.isFinite(item.voteAverage) && item.voteAverage >= minimumVisibleScore;
@@ -72,7 +77,11 @@ function hasMinimumTmdbScore(item: Pick<TmdbMedia, "vote_average">) {
 
 function filterChartPage(page: ChartPage): ChartPage {
   const items = page.items.filter(hasMinimumVisibleScore);
-  return { ...page, items, totalResults: page.totalPages === 1 ? items.length : page.totalResults };
+  return {
+    ...page,
+    items,
+    totalResults: capTotalResults(page.totalPages === 1 ? items.length : page.totalResults, items.length)
+  };
 }
 
 const image = (imagePath?: string, size = "w500") => imagePath
@@ -381,7 +390,7 @@ export async function discoverTmdb(mediaType: "movie" | "tv", filters: DiscoverF
       items,
       page,
       totalPages: Math.min(5, Math.max(1, data.total_pages || 1)),
-      totalResults: data.total_results || items.length
+      totalResults: capTotalResults(data.total_results, items.length)
     };
   } catch {
     return filterChartPage(fallback("discover", page, mediaType, filters.year, filters.genre));
@@ -404,7 +413,9 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
           : (right.popularity || 0) - (left.popularity || 0))
         .slice(0, 20);
       const totalPages = Math.min(5, Math.max(...responses.map((entry) => entry.data.total_pages || 1)));
-      const totalResults = responses.reduce((total, entry) => total + (entry.data.total_results || entry.results.length), 0);
+      const totalResults = capTotalResults(
+        responses.reduce((total, entry) => total + (entry.data.total_results || entry.results.length), 0)
+      );
       return {
         items: combined.map((item, index) => toChartItem(item, chart, (page - 1) * 20 + index + 1)),
         page,
@@ -450,7 +461,7 @@ export async function fetchTmdbChart(chart: string, media = "all", period = "wee
     items,
     page,
     totalPages: Math.min(5, Math.max(1, data.total_pages || 1)),
-    totalResults: data.total_results || items.length
+    totalResults: capTotalResults(data.total_results, items.length)
   };
 }
 
